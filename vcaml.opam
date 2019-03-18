@@ -12,7 +12,9 @@ homepage: "https://github.com/Kakadu/vcaml"
 bug-reports: "https://github.com/Kakadu/vcaml/issues"
 dev-repo: "git+https://github.com/Kakadu/vcaml"
 depends: [ 
-  "ocaml" "ocamlfind" 
+  "ocaml" 
+  "ocamlfind" 
+  "base"
   "dune" { build }
 ]
 build: [

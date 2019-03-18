@@ -1,3 +1,8 @@
+(env
+  (dev
+    (flags (:standard -warn-error -A-3 -w -3))))
+
 (executable
   (name main)
-  (libraries lib compiler-libs.common))
+  (libraries lib base compiler-libs.common)
+)
