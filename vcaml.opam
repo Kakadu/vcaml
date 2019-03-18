@@ -1,0 +1,22 @@
+opam-version: "2.0"
+name: "project"
+version: "0.1"
+synopsis: "Symbolic interpretation"
+description: """
+Playground for experiments about verification and symbolic execution
+"""
+maintainer: "Dmitrii.Kosarev@protonmail.ch"
+authors: "Dmitrii.Kosarev@protonmail.ch"
+license: "GPL"
+homepage: "https://github.com/Kakadu/vcaml"
+bug-reports: "https://github.com/Kakadu/vcaml/issues"
+dev-repo: "git+https://github.com/Kakadu/vcaml"
+depends: [ 
+  "ocaml" "ocamlfind" 
+  "dune" { build }
+]
+build: [
+  [make]
+]
+#install: [make "install"]
+
