@@ -129,7 +129,7 @@ let process_implementation_file ppf name =
   objfiles := (opref ^ ".cmo") :: !objfiles
 
 let process_file ppf name =
-  Printf.printf "process_file `%s`\n%!" name;
+  Caml.Printf.printf "process_file `%s`\n%!" name;
   if Filename.check_suffix name ".ml"
   || Filename.check_suffix name ".mlt" then begin
     let opref = output_prefix name in

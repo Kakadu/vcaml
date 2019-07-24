@@ -1,8 +1,10 @@
 (env
   (dev
-    (flags (:standard -warn-error -A-3 -w -3))))
+    (flags (-strict-sequence -strict-formats -short-paths -keep-locs -w -3-9-32))))
 
 (executable
   (name main)
-  (libraries lib base compiler-libs.common)
+  (libraries lib base sexplib compiler-libs.common)
+  (flags (-strict-sequence -strict-formats -short-paths -keep-locs -open Base -w -3-9-32))
+  (preprocess (staged_pps ppx_sexp_conv ppx_import ))
 )
