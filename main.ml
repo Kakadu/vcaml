@@ -2,56 +2,12 @@ open Clflags
 open Compenv
 
 
-module Compile  = struct
-(***********************************************************************)
-(*                                                                     *)
-(*                                OCaml                                *)
-(*                                                                     *)
-(*            Xavier Leroy, projet Cristal, INRIA Rocquencourt         *)
-(*                                                                     *)
-(*  Copyright 2002 Institut National de Recherche en Informatique et   *)
-(*  en Automatique.  All rights reserved.  This file is distributed    *)
-(*  under the terms of the Q Public License version 1.0.               *)
-(*                                                                     *)
-(***********************************************************************)
-
-(* The batch compiler *)
 
 open Format
 open Compenv
 
-(* Compile a .mli file *)
-
-(* Keep in sync with the copy in optcompile.ml *)
-
-(* let output_for_spec_tree = ref None *)
-
-let tool_name = "ocamlc"
-
 let interface _ppf _sourcefile _outputprefix =
   failwith "interfaces are not supported"
-  (*Compmisc.init_path false;
-  let modulename = module_of_filename ppf sourcefile outputprefix in
-  Env.set_unit_name modulename;
-  let initial_env = Compmisc.initial_env () in
-  let ast = Pparse.parse_interface ~tool_name ppf sourcefile in
-  if !Clflags.dump_parsetree then fprintf ppf "%a@." Printast.interface ast;
-  if !Clflags.dump_source then fprintf ppf "%a@." Pprintast.signature ast;
-  let tsg = Typemod.type_interface initial_env ast in
-  if !Clflags.dump_typedtree then fprintf ppf "%a@." Printtyped.interface tsg;
-  let sg = tsg.sig_type in
-  if !Clflags.print_types then
-    Printtyp.wrap_printing_env initial_env (fun () ->
-        fprintf std_formatter "%a@."
-          Printtyp.signature (Typemod.simplify_signature sg));
-  ignore (Includemod.signatures initial_env sg sg);
-  Typecore.force_delayed_checks ();
-  Warnings.check_fatal ();
-  if not !Clflags.print_types then begin
-    let sg = Env.save_signature sg modulename (outputprefix ^ ".cmi") in
-    Typemod.save_signature modulename tsg outputprefix sourcefile
-      initial_env sg ;
-  end*)
 
 (* Compile a .ml file *)
 
@@ -69,7 +25,7 @@ let implementation ppf sourcefile outputprefix =
   (* let where_to_print = match !output_name with Some s -> s | None -> failwith "output file not specified" in *)
   try
     let (typedtree, _coercion) =
-      Pparse.parse_implementation ~tool_name ppf sourcefile
+      Pparse.parse_implementation ~tool_name:"vcaml" ppf sourcefile
       ++ print_if ppf Clflags.dump_parsetree Printast.implementation
       ++ print_if ppf Clflags.dump_source Pprintast.structure
       ++ Typemod.type_implementation sourcefile outputprefix modulename env
@@ -77,55 +33,24 @@ let implementation ppf sourcefile outputprefix =
         Printtyped.implementation_with_coercion
     in
     Driver.work { Misc.sourcefile = sourcefile } typedtree
-    
-    
-(*
-    if !Clflags.print_types then begin
-      Warnings.check_fatal ();
-      Stypes.dump (Some (outputprefix ^ ".annot"))
-    end else begin
-      let bytecode =
-        (typedtree, coercion)
-        ++ Translmod.transl_implementation modulename
-        ++ print_if ppf Clflags.dump_rawlambda Printlambda.lambda
-        ++ Simplif.simplify_lambda
-        ++ print_if ppf Clflags.dump_lambda Printlambda.lambda
-        ++ Bytegen.compile_implementation modulename
-        ++ print_if ppf Clflags.dump_instr Printinstr.instrlist
-      in
-      let objfile = outputprefix ^ ".cmo" in
-      let oc = open_out_bin objfile in
-      try
-        bytecode
-        ++ Emitcode.to_file oc modulename objfile;
-        Warnings.check_fatal ();
-        close_out oc;
-        Stypes.dump (Some (outputprefix ^ ".annot"))
-      with x ->
-        close_out oc;
-        remove_file objfile;
-        raise x
-    end *)
   with
     | Typetexp.Error (_loc,env,e) as exc ->
       Typetexp.report_error env Format.std_formatter e;
       Format.printf "\n%!";
       raise exc
-    (* | Misc.HookExnWrapper wr -> raise wr.Misc.error *)
     | x -> raise x
 
 let c_file name =
   Location.input_name := name;
   if Ccomp.compile_file name <> 0 then exit 2
 
-end
 
 let process_interface_file ppf name =
-  Compile.interface ppf name (output_prefix name)
+  interface ppf name (output_prefix name)
 
 let process_implementation_file ppf name =
   let opref = output_prefix name in
-  Compile.implementation ppf name opref;
+  implementation ppf name opref;
   objfiles := (opref ^ ".cmo") :: !objfiles
 
 let process_file ppf name =
@@ -133,29 +58,9 @@ let process_file ppf name =
   if Filename.check_suffix name ".ml"
   || Filename.check_suffix name ".mlt" then begin
     let opref = output_prefix name in
-    Compile.implementation ppf name opref;
+    implementation ppf name opref;
     objfiles := (opref ^ ".cmo") :: !objfiles
-  end (*
-  else if Filename.check_suffix name !Config.interface_suffix then begin
-    let opref = output_prefix name in
-    Compile.interface ppf name opref;
-    if !make_package then objfiles := (opref ^ ".cmi") :: !objfiles
-  end
-  else if Filename.check_suffix name ".cmo"
-       || Filename.check_suffix name ".cma" then
-    objfiles := name :: !objfiles
-  else if Filename.check_suffix name ".cmi" && !make_package then
-    objfiles := name :: !objfiles
-  else if Filename.check_suffix name ext_obj
-       || Filename.check_suffix name ext_lib then
-    ccobjs := name :: !ccobjs
-  else if Filename.check_suffix name ext_dll then
-    dllibs := name :: !dllibs
-  else if Filename.check_suffix name ".c" then begin
-    Compile.c_file name;
-    ccobjs := (Filename.chop_suffix (Filename.basename name) ".c" ^ ext_obj)
-              :: !ccobjs
-  end *)
+  end 
   else
     raise(Arg.Bad("don't know what to do with " ^ name))
 
