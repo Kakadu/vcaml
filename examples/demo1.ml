@@ -1,13 +1,17 @@
-let x = ref 0
-let rec f n =
-  if n<=0 then ()
-  else incr x
+let gl = ref 0
 
-(* let g n =
-  f n;
-  !x
+let foo () = gl := !gl + 2
+let boo () = gl := !gl + 20
+let goo () = boo(); foo ()
+(* let rec f n = 
+  if n<0 then ()
+  else gl := !gl + 1
 
-let h () =
+let g m =
+  f m;
+  !gl *)
+
+(* let h () =
   let n = Random.int 0 in
   x := 42;
   g n *)
