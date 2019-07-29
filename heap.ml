@@ -1,37 +1,43 @@
-module Longident = struct
-  type t = [%import: Longident.t] [@@deriving sexp_of]
-  let to_string ident = Sexplib.Sexp.to_string_hum @@ sexp_of_t ident
+module MyIdent = struct
+  type longident = [%import: Longident.t] [@@deriving sexp_of]
+
+  type t = Ident.t 
+  let to_string ident = Ident.unique_name ident
+   (* Sexplib.Sexp.to_string_hum @@ sexp_of_t ident *)
+  let sexp_of_t ident  = to_string ident |> Sexplib.Std.sexp_of_string
   let pp_string () = to_string
-  let equal = Caml.(==)
+  let equal = Ident.equal
 end
 
-type term = LI of (heap [@sexp.opaque]) * Longident.t
+type term = LI of heap option * MyIdent.t
           | CInt of int
           | BinOp of op * term * term
           | Unit
           | Call of term * term
           | Union of (pf * term) list
-          | Lambda of { lam_argname: Longident.t option
-                      ; lam_api : (api [@sexp.opaque])
-                      ; lam_eff: heap
-                      ; lam_body: term
+          | Lambda of { lam_argname: MyIdent.t option
+                      ; lam_api   : api 
+                      ; lam_eff   : heap
+                      ; lam_body  : term
+                      ; lam_is_rec: bool
                       }
+and api = (MyIdent.t * term) list [@@deriving sexp_of]
+and t = HAssoc of (MyIdent.t * term) list
+        (* Heap should be a mapping from terms to terms (array access, for example)
+         * but for fibonacci it doesn't matter
+         *)
+      | HMerge of (pf * t) list
+      | HCmps of heap * heap
+      | HCall of term * term
+      | HEmpty
+[@@deriving sexp_of]
 and pf  = LogicBinOp of logic_op * pf * pf
         | Not of pf
         | Term of term
 [@@deriving sexp_of]
 and logic_op = Conj | Disj [@@deriving sexp_of]
 and op = | Plus | Minus | LT | LE | GT | GE | Eq [@@deriving sexp_of]
-and t = HAssoc of (Longident.t * term) list
-        (* Heap should be a mapping from terms to terms (array access, for example)
-         * but for fibonacci it doesn't matter
-         *)
-      | HMerge of (pf * t) list
-      | HCmps of t * t
-      | HEmpty
-[@@deriving sexp_of]
 and heap = t [@@deriving sexp_of]
-and api = (Longident.t * term) list [@@deriving sexp_of]
 let pp_term () t = Sexplib.Sexp.to_string @@ sexp_of_term t
 (** Term operations *)
 let call fexpr arg = Call (fexpr, arg)
@@ -48,15 +54,17 @@ let pf_binop op f1 f2 = LogicBinOp (op, f1, f2)
 
 
 (** Heap operations *)
-let cmps : t -> t -> t = fun a b ->
+let hcmps : t -> t -> t = fun a b ->
   match (a,b) with
   | (HEmpty,_) -> b
   | (_,HEmpty) -> a
   | (HAssoc xs, HAssoc ys) -> HAssoc (xs @ ys)
   | _ -> HCmps (a,b)
-let empty : t = HEmpty
-let single name el : t = HAssoc [(name,el)]
-let merge2 g1 h1 g2 h2 = HMerge [(g1,h1); (g2,h2)]
+let hempty : t = HEmpty
+let hsingle name el : t = HAssoc [(name,el)]
+let hmerge2 g1 h1 g2 h2 = HMerge [(g1,h1); (g2,h2)]
+
+let hcall f x = HCall (f,x)
 
 (* * The main heap access function a.k.a. READ
 let rec hfind_exn (heap: heap) ident : term =
@@ -75,7 +83,7 @@ let rec hfind_li heap longident =
   (* let (>>=) = Option.(>>=) in  *)
   let default = li heap longident in 
   match heap with 
-  | HAssoc xs -> List.Assoc.find xs ~equal:Longident.equal longident
+  | HAssoc xs -> List.Assoc.find xs ~equal:MyIdent.equal longident
                  |> Option.value_map ~f:(fun t -> t) ~default
   | HEmpty -> default
   | HMerge hs ->      
@@ -106,7 +114,12 @@ let rec heap_subst heap lident new_term = heap
 and term_subst term lident new_term = term
 
 module Api = struct 
-  type t = api
-  let find_exn (xs:t) k = List.Assoc.find_exn xs k ~equal:Longident.equal
-  let add = List.Assoc.add ~equal:Longident.equal
+  type t = api * MyIdent.t list 
+  let find_exn ((xs,_):t) k = List.Assoc.find_exn xs k ~equal:MyIdent.equal
+  let add (api,pen) k v = 
+    (List.Assoc.add ~equal:MyIdent.equal api k v, pen)
+
+  let add_pending new_ (api,xs) = (api,new_::xs)
+
+  let remove_pending_exn el (api,xs) = (api, List.filter xs ~f:(MyIdent.equal el))
 end 
