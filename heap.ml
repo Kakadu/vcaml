@@ -9,6 +9,7 @@ module MyIdent = struct
   let equal = Ident.equal
 end
 
+type cre_mode = Assign | Const [@@deriving sexp_of]
 let pp_longident () lident = Longident.flatten lident |> String.concat ~sep:"."
 type term = LI of heap option * MyIdent.t
           | CInt of int
@@ -24,7 +25,7 @@ type term = LI of heap option * MyIdent.t
                       }
 and api = (MyIdent.t * term) list [@@deriving sexp_of]
 (* TODO: it should be path here *)
-and t = HAssoc of (MyIdent.t * term) list
+and t = HAssoc of (MyIdent.t * (cre_mode * term)) list
         (* Heap should be a mapping from terms to terms (array access, for example)
          * but for fibonacci it doesn't matter
          *)
@@ -41,8 +42,11 @@ and logic_op = Conj | Disj [@@deriving sexp_of]
 and op = | Plus | Minus | LT | LE | GT | GE | Eq [@@deriving sexp_of]
 and heap = t [@@deriving sexp_of]
 let pp_term () t = Sexplib.Sexp.to_string @@ sexp_of_term t
+let pp_heap () h = Sexplib.Sexp.to_string @@ sexp_of_heap h
 (** Term operations *)
-let call fexpr arg = Call (fexpr, arg)
+let call fexpr arg = 
+  Format.eprintf "constructing call of '%s' to '%s'\n"  (pp_term () fexpr)  (pp_term () arg);
+  Call (fexpr, arg)
 let lambda lam_is_rec lam_argname lam_api lam_eff lam_body =
   Lambda { lam_argname; lam_api; lam_eff; lam_body; lam_is_rec }
 let li ?heap longident = LI (heap, longident)
@@ -58,13 +62,18 @@ let pf_binop op f1 f2 = LogicBinOp (op, f1, f2)
 
 (** Heap operations *)
 let hcmps : t -> t -> t = fun a b ->
+  Format.eprintf "calling hcmps of\n%!";
+  Format.eprintf "\t%s\n%!" (pp_heap () a);
+  Format.eprintf "\t%s\n%!" (pp_heap () b);
   match (a,b) with
-  | (HEmpty,_) -> b
-  | (_,HEmpty) -> a
+  | (HEmpty,b) -> b
+  | (a,HEmpty) -> a
   | (HAssoc xs, HAssoc ys) -> HAssoc (xs @ ys)
   | _ -> HCmps (a,b)
 let hempty : t = HEmpty
-let hsingle name el : t = HAssoc [(name,el)]
+(* let hsingle name el : t = HAssoc [(name,el)] *)
+let hassign name el : t = HAssoc [(name, (Assign, el))] 
+let hconst name el : t =  HAssoc [(name, (Const, el))] 
 let hmerge2 g1 h1 g2 h2 = HMerge [(g1,h1); (g2,h2)]
 
 let hcall f x = HCall (f,x)
@@ -87,7 +96,7 @@ let rec hfind_li (heap: heap) longident : term =
   let default = li ~heap longident in
   match heap with
   | HAssoc xs -> List.Assoc.find xs ~equal:MyIdent.equal longident
-                 |> Option.value_map ~f:(fun t -> t) ~default
+                 |> Option.value_map ~f:(fun (_,t) -> t) ~default
   | HEmpty -> default
   | HMerge hs ->
       union @@ List.map hs ~f:(fun (g,h) -> (g, hfind_li h longident))
@@ -116,13 +125,17 @@ and fat_dot_pf heap pf = match pf with
   | Term t -> Term (fat_dot heap t)
 and simplify_pf pf = pf
 
-let rec heap_subst heap lident new_term = heap
-and term_subst term lident new_term = term
+let rec heap_subst heap lident new_term = 
+  Format.eprintf "heap_subst not implemented\n%!";
+  heap
+and term_subst term lident new_term = 
+  Format.eprintf "heap_subst not implemented\n%!";
+  term
 
 module Api = struct
   type t = api * MyIdent.t list
   let empty = ([],[])
-  let find_exn ((xs,_):t) k = List.Assoc.find_exn xs k ~equal:MyIdent.equal
+  
   let add (api,pen) k v =
     (List.Assoc.add ~equal:MyIdent.equal api k v, pen)
 
@@ -130,10 +143,14 @@ module Api = struct
 
   let remove_pending_exn (api,xs) el = (api, List.filter xs ~f:(MyIdent.equal el))
 
-  let is_pending (_,xs) ident = Base.List.exists xs ident
-  let is_pending_lident (_,xs) (lident: Longident.t) : MyIdent.t option =
-    assert false
-  let find_lident_exn : t -> Longident.t -> term = fun (api,toplevel) lident ->
-    assert false
-  let get_ident : t -> Longident.t -> MyIdent.t = fun  _ _ -> assert false
+  let is_pending (_,xs) ident : bool = Base.List.exists xs ~f:(MyIdent.equal ident)
+  (* let is_pending_lident (_,xs) (lident: Longident.t) : MyIdent.t option =
+    assert false *)
+  let find_ident_exn : t -> Ident.t -> term = fun (api,toplevel) ident ->
+    List.Assoc.find_exn ~equal:MyIdent.equal api ident
+  let find_ident_li : t -> Ident.t -> term = fun (api,toplevel) ident ->
+    try find_ident_exn (api,toplevel) ident 
+    with Not_found -> li ident
+    
+  
 end
