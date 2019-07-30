@@ -9,6 +9,7 @@ module UntypeP = struct
     Untypeast.default_mapper.expr Untypeast.default_mapper e |> Printast.expression 0 fmt;
     Format.pp_print_flush fmt ();
     Buffer.contents b
+
 end
 
 let is_arr expr =
@@ -25,7 +26,7 @@ let is_binop = function
   | "<=" | "<" | ">" | ">=" | "+" | "-"  -> true
   | _ -> false
 
-let failwiths fmt = 
+let failwiths fmt =
   Format.kprintf failwith fmt
 
 let find_lident api heap ident =
@@ -53,11 +54,11 @@ and process_vb (api,heap) recflg { vb_pat; vb_expr; _ } : Heap.MyIdent.t option 
   (* returns maybe identifier,
    * rhs effect,
    * effect thats is created by binding creation *)
-  
+  (* Format.eprintf "process_vb: ... = '%s'\n%!" (UntypeP.expr vb_expr); *)
   match vb_pat.pat_desc with
   | Tpat_var (ident,_) ->
-      let api = match recflg with 
-        | Nonrecursive -> api 
+      let api = match recflg with
+        | Nonrecursive -> api
         | Recursive -> Heap.Api.add (Heap.Api.add_pending api ident) ident (Heap.li ident)
       in
       let (_new_api,ans,h) = process_expr (api,heap) vb_expr in
@@ -80,7 +81,7 @@ and process_expr (api,heap) e =
   | Texp_ident (Pident ident,{txt=lident},_) ->
     (* TODO: use path here *)
     (* identifiers are returned as is. No inlining yet, even for functions *)
-    (api, Heap.hempty, find_lident api heap ident)
+    (api, heap, find_lident api heap ident)
   | Texp_function { cases=[{c_guard=None; c_lhs={pat_desc=Tpat_construct({txt=Lident "()"},_,[])}; c_rhs}] } ->
         (* Processing `fun () -> c_rhs` *)
     let api, h, ans = process_expr (api,heap) c_rhs in
@@ -96,14 +97,16 @@ and process_expr (api,heap) e =
       match process_vb (api,heap) _recflg vb with
       | (Some ident, rhs, heff) ->
           (* we don't care about isolation here, so we compose heaps with toplevel one *)
-          let heff2 = Heap.hcmps heap heff in
+          let heap = Heap.hcmps heap heff in
+          let heap = Heap.hcmps heap (Heap.hsingle ident rhs) in
           (* we need to extend API before processing the body *)
           let api = Heap.Api.add api ident rhs in
-          let api, heff3, ans = process_expr (api,heff2) body in
+          let api, heff3, ans = process_expr (api,heap) body in
           (api, heff3, ans)
       | _ -> assert false
   end
   | Texp_let (_recflg, _vbs, _body) -> assert false
+
   | Texp_apply ({exp_desc=Texp_ident(_,{txt=Lident "ref"},_)}, [(_,Some e)])
   | Texp_apply ({exp_desc=Texp_ident(_,{txt=Ldot(Lident _, "ref")},_)}, [(_,Some e)]) ->
       (* Do we need explicit derefenrecing? *)
@@ -123,7 +126,7 @@ and process_expr (api,heap) e =
      * to have a global cache of function summaries *)
     let api_1,h1,l2 = process_expr (api,heap) l in
     let api_2,h2,r2 = process_expr (api_1,h1) r in
-    (api_2, h2, Heap.binop op l2 r2) 
+    (api_2, h2, Heap.binop op l2 r2)
   end
   | Texp_apply ({exp_desc=Texp_ident(Pdot (Pident _ident,":=",_), _, _)},
                [(_,Some {exp_desc=Texp_ident(Pident ident,_,_)}); (_,Some rhs) ]) -> begin
@@ -132,8 +135,8 @@ and process_expr (api,heap) e =
     let api_1,h1,r1 = process_expr (api,heap) rhs in
     let heap_ans = Heap.hcmps h1 (Heap.hsingle ident r1) in
     (api_1, heap_ans, Heap.Unit)
-    (* match Heap.Api.find_ident_exn api ident with 
-    | Heap.LI (h,ident) -> 
+    (* match Heap.Api.find_ident_exn api ident with
+    | Heap.LI (h,ident) ->
       let heap_ans = Heap.hcmps h1 (Heap.hsingle ident r1) in
       (* The idea is to have all optimisation operations in Heap module *)
       (api_1, heap_ans, Heap.Unit)
@@ -141,7 +144,7 @@ and process_expr (api,heap) e =
   end
   | Texp_apply ({exp_desc=Texp_ident(Pdot (Pident _ident, "!", _), _, _)}, [ (_,Some r) ]) -> begin
     let api,h,r = process_expr (api,heap) r in
-    (api,h,r)    
+    (api,h,r)
   end
   | Texp_apply ({exp_desc=Texp_ident(Pident ident,_,_)}, [(_,Some e)]) -> begin
     (* Now: real function application *)
@@ -151,14 +154,18 @@ and process_expr (api,heap) e =
      *)
     match find_lident api heap ident with
     | Heap.Lambda { lam_is_rec=true; _ } ->
+        Format.eprintf "%s %d\n%!" __FILE__ __LINE__;
         (* recursive functions we left as is *)
         (api, Heap.hcmps argeff (Heap.hcall (Heap.li ident) ans), Heap.call (Heap.li ~heap ident) ans)
     | Heap.Lambda {lam_argname; lam_eff; lam_api; lam_body} ->
+        Format.eprintf "%s %d\n%!" __FILE__ __LINE__;
         (* Let's not inline recursive functions too *)
         (api, Heap.hcmps argeff (Heap.hcall (Heap.li ident) ans), Heap.call (Heap.li ~heap ident) ans)
         (* let app_eff = Heap.heap_subst argeff lam_argname ans in
         (api, app_eff, Heap.call (Heap.li ~heap ident) ans) *)
-    | Heap.LI (h, ident) as func -> (api, argeff, Heap.call func ans)
+    | Heap.LI (h, ident) as func ->
+        Format.eprintf "%s %d\n%!" __FILE__ __LINE__;
+        (api, Heap.hcmps argeff (Heap.hcall (Heap.li ident) ans), Heap.call func ans)
     | exception Not_found -> failwith (Printf.sprintf "Identifier unbound: '%a'" Heap.MyIdent.pp_string ident)
     | ans_term ->
         failwith (sprintf "typecheck error? should not happed. Searched for ident %a. Got '%a'"
@@ -179,8 +186,12 @@ and process_expr (api,heap) e =
     let notg = Heap.pf_not g in
     (api, Heap.hmerge2     g h2 notg h3, Heap.union2 g th notg el)
   | Texp_match (what, cases, _exc_cases, _) -> begin
+    Format.eprintf "HERR\n%!";
+
     match cases with
-    | [{c_lhs={pat_desc=Tpat_construct ({txt=Lident "()"},_,[])}; c_rhs}] -> process_expr (api,heap) c_rhs
+    | [{c_lhs={pat_desc=Tpat_construct ({txt=Lident "()"},_,[])}; c_rhs}] ->
+        let api, eff, _scrut = process_expr (api,heap) what in
+        process_expr (api,eff) c_rhs
     | _ -> assert false
   end
   | _ -> failwith ("not implemented " ^ UntypeP.expr e)
