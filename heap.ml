@@ -1,3 +1,5 @@
+let failwiths fmt = Format.kprintf failwith fmt
+
 module MyIdent = struct
   type longident = [%import: Longident.t] [@@deriving sexp_of]
 
@@ -36,6 +38,9 @@ and t = HAssoc of (MyIdent.t * term) list
 [@@deriving sexp_of]
 and pf  = LogicBinOp of logic_op * pf * pf
         | Not of pf
+        | EQident of MyIdent.t * MyIdent.t
+        | PFTrue
+        | PFFalse
         | Term of term
 [@@deriving sexp_of]
 and logic_op = Conj | Disj [@@deriving sexp_of]
@@ -43,6 +48,8 @@ and op = | Plus | Minus | LT | LE | GT | GE | Eq [@@deriving sexp_of]
 and heap = t [@@deriving sexp_of]
 let pp_term () t = Sexplib.Sexp.to_string @@ sexp_of_term t
 let pp_heap () h = Sexplib.Sexp.to_string @@ sexp_of_heap h
+
+let fold_defined ~f ~init = List.fold_left ~init ~f
 (** Term operations *)
 let call fexpr arg =
   Format.eprintf "constructing call of '%s' to '%s'\n"  (pp_term () fexpr)  (pp_term () arg);
@@ -58,26 +65,14 @@ let binop op a b = BinOp (op,a,b)
 let pf_term el = Term el
 let pf_not pf = Not pf
 let pf_binop op f1 f2 = LogicBinOp (op, f1, f2)
-
-
-let hcmps_defined xs ys =
-  (* TODO: fancy algorithm here *)
-  xs @ ys
-
-(** Heap operations *)
-let hcmps : t -> t -> t = fun a b ->
-  Format.eprintf "calling hcmps of\n%!";
-  Format.eprintf "\t%s\n%!" (pp_heap () a);
-  Format.eprintf "\t%s\n%!" (pp_heap () b);
-  match (a,b) with
-  | (HEmpty,b) -> b
-  | (a,HEmpty) -> a
-  | (HAssoc xs, HAssoc ys) -> HAssoc (hcmps_defined xs  ys)
-  | _ -> HCmps (a,b)
+let pf_eq id1 id2 = EQident (id1, id2)
+let pf_conj_list = function 
+  | [] -> PFTrue
+  | h::hs -> List.fold_left ~init:h hs ~f:(pf_binop Conj)
 let hempty : t = HEmpty
 let hsingle name el : t = HAssoc [(name,el)]
 let hmerge2 g1 h1 g2 h2 = HMerge [(g1,h1); (g2,h2)]
-
+let hmerge_list xs = HMerge xs
 let hcall f x = HCall (f,x)
 
 (* * The main heap access function a.k.a. READ
@@ -122,10 +117,73 @@ and fat_dot (heap: t) term =
       term
 and simplify_term term = term
 and fat_dot_pf heap pf = match pf with
+  | PFTrue -> PFTrue
+  | PFFalse -> PFFalse
   | LogicBinOp (op, l, r) -> LogicBinOp (op, fat_dot_pf heap l, fat_dot_pf heap r)
   | Not pf -> Not (fat_dot_pf heap pf)
   | Term t -> Term (fat_dot heap t)
+  | EQident (l,r) -> failwiths "not implemented %s %d" __FILE__ __LINE__
 and simplify_pf pf = pf
+
+let rec hdot_defined hs term = 
+  match term with 
+  | LI (None, ident) -> read_ident_defined hs ident
+  | LI (Some _, ident) -> failwiths "not implemented %s %d" __FILE__ __LINE__
+  | BinOp (op, l, r) -> BinOp (op, hdot_defined hs l, hdot_defined hs r)
+  | Unit 
+  | CInt _ -> term
+  | Union us     -> assert false
+  | Call (f,arg) -> 
+      Format.eprintf "TODO: not implemented %s %d\n%!" __FILE__ __LINE__;
+      Call (hdot_defined hs f, hdot_defined hs arg)
+  | Lambda _ -> 
+      Format.eprintf "TODO: not implemented %s %d\n%!" __FILE__ __LINE__;
+      term
+  
+and read_ident_defined hs ident = 
+  if List.Assoc.mem hs ident ~equal:MyIdent.equal 
+  then List.Assoc.find_exn hs ident ~equal:MyIdent.equal 
+  else 
+    (* We should return UNION here *)
+    let positives = List.map hs ~f:(fun (k,v) -> 
+      (pf_eq k ident, v)
+    )
+    in 
+    let neg = pf_conj_list @@ List.map hs ~f:(fun (k,_) -> pf_not @@ pf_eq k ident) in
+    union @@ (neg, li ident) :: positives
+
+let write_ident_defined hs ident (newval: term) : heap = 
+  let positives = List.map hs ~f:(fun (k,v) -> 
+      let newh = List.filter hs ~f:(fun (i,_) -> not (MyIdent.equal i k)) in 
+      let newh = (ident, newval) :: newh in 
+      (pf_eq k ident, HAssoc newh)
+  )
+  in 
+  let neg = pf_conj_list @@ List.map hs ~f:(fun (k,_) -> pf_not @@ pf_eq k ident) in
+  HMerge ( (neg, HAssoc ((ident, newval) :: hs)) :: positives)
+
+(**
+ *  
+ *)
+let hcmps_defined ms ns =
+  (* TODO: fancy algorithm here *)
+  let rec mutate ns a = a in 
+  fold_defined ns ~init:[] ~f:(fun acc (k,v) -> 
+    let a = fat_dot (HAssoc ms) v in 
+    (k, mutate ns a) :: acc
+  )
+  
+
+(** Heap operations *)
+let hcmps : t -> t -> t = fun a b ->
+  Format.eprintf "calling hcmps of\n%!";
+  Format.eprintf "\t%s\n%!" (pp_heap () a);
+  Format.eprintf "\t%s\n%!" (pp_heap () b);
+  match (a,b) with
+  | (HEmpty,b) -> b
+  | (a,HEmpty) -> a
+  | (HAssoc xs, HAssoc ys) -> HAssoc (hcmps_defined xs  ys)
+  | _ -> HCmps (a,b)
 
 let rec heap_subst heap lident new_term =
   Format.eprintf "heap_subst not implemented\n%!";
@@ -138,6 +196,7 @@ module Api = struct
   type t = api * MyIdent.t list
   let empty = ([],[])
 
+  (* let fold_api ~f ~init xs = List.fold_left ~f ~init xs *)
   let add (api,pen) k v =
     (List.Assoc.add ~equal:MyIdent.equal api k v, pen)
 

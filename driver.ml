@@ -12,22 +12,21 @@ module UntypeP = struct
 
 end
 
-let is_arr expr =
+(* let is_arr expr =
   match expr.exp_type.Types.desc with
   | Tarrow (_,_,_,_) -> true
-  | _ -> false
+  | _ -> false *)
 
-let i_to_longi i = Longident.Lident (Ident.unique_name i)
+(* let i_to_longi i = Longident.Lident (Ident.unique_name i) *)
 
-let standart_heap = Heap.hempty
+(* let standart_heap = Heap.hempty *)
   (* Heap.single (Lident "!") (Heap.lambda (Some (Lident "x")) Heap.empty (Heap.li (Heap.empty) (Lident "x"))) *)
 
 let is_binop = function
   | "<=" | "<" | ">" | ">=" | "+" | "-"  -> true
   | _ -> false
 
-let failwiths fmt =
-  Format.kprintf failwith fmt
+let failwiths = Heap.failwiths
 
 let find_lident api heap ident =
   match Heap.Api.is_pending api ident with
@@ -201,7 +200,11 @@ let work { Misc.sourcefile = filename } (t: Typedtree.structure) =
   Format.pp_set_margin Format.std_formatter 100;
   Format.printf "Processing implementation file '%s'\n%!" filename;
   Printtyped.implementation Format.std_formatter t;
+  Format.printf "\n\n%!";
+  
   let api,h = process_str (Heap.Api.empty) t in
   Sexplib.Sexp.output_hum_indent 2 stdout @@ Heap.sexp_of_t h;
+  Format.printf "\n\n%!";
   Sexplib.Sexp.output_hum_indent 2 stdout @@ Heap.sexp_of_api (fst api);
+  Format.printf "\n%!";
   ()
