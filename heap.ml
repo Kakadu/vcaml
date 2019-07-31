@@ -1,51 +1,63 @@
 let failwiths fmt = Format.kprintf failwith fmt
 
 module MyIdent = struct
-  type longident = [%import: Longident.t] [@@deriving sexp_of]
+  type longident = Longident.t = 
+    | Lident of GT.string
+    | Ldot of longident * GT.string
+    | Lapply of longident * longident
+    [@@deriving gt ~options:{ fmt }]
 
   type t = Ident.t
+  
   let to_string ident = Ident.unique_name ident
    (* Sexplib.Sexp.to_string_hum @@ sexp_of_t ident *)
   let sexp_of_t ident  = to_string ident |> Sexplib.Std.sexp_of_string
   let pp_string () = to_string
   let equal = Ident.equal
+
+  let t = { GT.gcata = (fun _ _ _ -> assert false) 
+          ; GT.plugins = object 
+              method fmt fmt o = Format.fprintf fmt "<someident>"
+          end
+          ; GT.fix = (fun _ -> assert false)
+          }
 end
 
-(* type cre_mode = Assign | Const [@@deriving sexp_of] *)
+(* type cre_mode = Assign | Const [@@deriving gt ~options:{ fmt }] *)
 let pp_longident () lident = Longident.flatten lident |> String.concat ~sep:"."
-type term = LI of heap option * MyIdent.t
-          | CInt of int
+type term = LI of heap GT.option * MyIdent.t
+          | CInt of GT.int
           | BinOp of op * term * term
           | Unit
           | Call of term * term
-          | Union of (pf * term) list
-          | Lambda of { lam_argname: MyIdent.t option
+          | Union of (pf * term) GT.list
+          | Lambda of { lam_argname: MyIdent.t GT.option
                       ; lam_api   : api
                       ; lam_eff   : heap
                       ; lam_body  : term
-                      ; lam_is_rec: bool
+                      ; lam_is_rec: GT.bool
                       }
-and api = (MyIdent.t * term) list [@@deriving sexp_of]
+and api = (MyIdent.t * term) GT.list [@@deriving gt ~options:{ fmt }]
 (* TODO: it should be path here *)
-and t = HAssoc of (MyIdent.t * term) list
+and t = HAssoc of (MyIdent.t * term) GT.list
         (* Heap should be a mapping from terms to terms (array access, for example)
          * but for fibonacci it doesn't matter
          *)
-      | HMerge of (pf * t) list
+      | HMerge of (pf * t) GT.list
       | HCmps of heap * heap
       | HCall of term * term
       | HEmpty
-[@@deriving sexp_of]
+[@@deriving gt ~options:{ fmt }]
 and pf  = LogicBinOp of logic_op * pf * pf
         | Not of pf
         | EQident of MyIdent.t * MyIdent.t
         | PFTrue
         | PFFalse
         | Term of term
-[@@deriving sexp_of]
-and logic_op = Conj | Disj [@@deriving sexp_of]
-and op = | Plus | Minus | LT | LE | GT | GE | Eq [@@deriving sexp_of]
-and heap = t [@@deriving sexp_of]
+[@@deriving gt ~options:{ fmt }]
+and logic_op = Conj | Disj [@@deriving gt ~options:{ fmt }]
+and op = | Plus | Minus | LT | LE | GT | GE | Eq [@@deriving gt ~options:{ fmt }]
+and heap = t [@@deriving gt ~options:{ fmt }]
 let pp_term () t = Sexplib.Sexp.to_string @@ sexp_of_term t
 let pp_heap () h = Sexplib.Sexp.to_string @@ sexp_of_heap h
 
