@@ -197,11 +197,11 @@ and process_expr (api,heap) e =
 
 
 let work { Misc.sourcefile = filename } (t: Typedtree.structure) =
-  Format.pp_set_margin Format.std_formatter 100;
+  Format.pp_set_margin Format.std_formatter 150;
   Format.printf "Processing implementation file '%s'\n%!" filename;
   Printtyped.implementation Format.std_formatter t;
   Format.printf "\n\n%!";
-  
+
   let api,h = process_str (Heap.Api.empty) t in
   Format.printf "%a\n\n%!" Heap.fmt_heap h;
   Format.printf "%a\n\n%!" Heap.fmt_api (fst api);

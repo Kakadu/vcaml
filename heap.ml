@@ -1,22 +1,22 @@
 let failwiths fmt = Format.kprintf failwith fmt
 
 module MyIdent = struct
-  type longident = Longident.t = 
+  type longident = Longident.t =
     | Lident of GT.string
     | Ldot of longident * GT.string
     | Lapply of longident * longident
     [@@deriving gt ~options:{ fmt }]
 
   type t = Ident.t
-  
+
   let to_string ident = Ident.unique_name ident
    (* Sexplib.Sexp.to_string_hum @@ sexp_of_t ident *)
   let sexp_of_t ident  = to_string ident |> Sexplib.Std.sexp_of_string
   let pp_string () = to_string
   let equal = Ident.equal
 
-  let t = { GT.gcata = (fun _ _ _ -> assert false) 
-          ; GT.plugins = object 
+  let t = { GT.gcata = (fun _ _ _ -> assert false)
+          ; GT.plugins = object
               method fmt fmt o = Format.fprintf fmt "%s" (Ident.unique_name o)
           end
           ; GT.fix = (fun _ -> assert false)
@@ -63,50 +63,54 @@ and heap = t [@@deriving gt ~options:{ fmt }]
 
 (* Pretty-printing boilerplate now *)
 
-let fmt_op fmt = function 
+let fmt_op fmt = function
   | Plus  -> Format.fprintf fmt "+"
   | Minus -> Format.fprintf fmt "-"
   | LT    -> Format.fprintf fmt "<"
   | GT    -> Format.fprintf fmt ">"
   | LE    -> Format.fprintf fmt "≤"
-  | GE    -> Format.fprintf fmt "≥" 
+  | GE    -> Format.fprintf fmt "≥"
   | Eq    -> Format.fprintf fmt "="
 
-let fmt_logic_op fmt = function 
+let fmt_logic_op fmt = function
   | Conj -> Format.fprintf fmt "∧"
   | Disj -> Format.fprintf fmt "∨"
 
-class ['extra_term] my_fmt_term 
+class ['extra_term] my_fmt_term
     ((for_api, for_pf, for_t, fself_term,for_heap) as _mutuals_pack)
   =
   object
     inherit  ['extra_term] fmt_term_t_stub _mutuals_pack
     method! c_Lambda fmt _ _x__090_ _x__091_ _x__092_ _x__093_ _x__094_ =
-      Format.fprintf fmt
-        "(Lambda @[<v>{ @[lam_argname@ =@ %a@]@,@[; @[lam_api@ =@ %a@]@]@,@[; lam_eff@,=@,%a@]@,@[; lam_body@,=@,%a@]@,@ "
-        (    GT.fmt GT.option (GT.fmt MyIdent.t) )
-        _x__090_ for_api _x__091_ for_heap _x__092_ fself_term _x__093_;
-      Format.fprintf fmt "@[; lam_is_rec@,=@,%b@]" _x__094_;
+      Format.fprintf fmt "(Lambda @[<v>{ ";
+      Format.fprintf fmt "@[lam_argname@ =@ %a@]@," (GT.fmt GT.option (GT.fmt MyIdent.t)) _x__090_;
+      Format.fprintf fmt "@[; @[lam_api@ =@ %a@]@]@," for_api _x__091_;
+      Format.fprintf fmt "@[; @[lam_eff@ =@ %a@]@]@,"  for_heap _x__092_;
+      Format.fprintf fmt "@[; @[lam_body@ =@ %a@]@]@," fself_term _x__093_;
+      Format.fprintf fmt "@[; @[lam_is_rec@ =@ %b@]@]" _x__094_;
       Format.fprintf fmt "})@]"
     method! c_BinOp inh___079_ _ _x__080_ _x__081_ _x__082_ =
       Format.fprintf inh___079_ "@[(@,%a@ %a@,@ %a)@]"
-        fself_term _x__081_ 
-        fmt_op _x__080_ 
+        fself_term _x__081_
+        fmt_op _x__080_
         fself_term _x__082_
     method! c_CInt fmt _ = Format.fprintf fmt "%d"
     method! c_LI fmt _ h ident =
-      match h with 
-      | None -> Format.fprintf fmt "@[(LI \"%a\")@]" (GT.fmt MyIdent.t ) ident 
-      | Some h -> 
+      match h with
+      | None -> Format.fprintf fmt "@[(LI \"%a\")@]" (GT.fmt MyIdent.t ) ident
+      | Some h ->
           Format.fprintf fmt "LI@ @[(@,%a,@,@ %a@,)@]"     for_heap h
             (GT.fmt MyIdent.t) ident
-    method! c_Union fmt _ _x__088_ =
+    method! c_Union fmt _ ps =
       (* TODO: normal printing *)
-      Format.fprintf fmt "@[(Union@ @[[@ ";
-      List.iter _x__088_ ~f:(fun (l,r) -> 
-        Format.fprintf fmt "@[; ⦗@,%a, %a@,⦘@]" for_pf l fself_term r
-      );
-      Format.fprintf fmt "]@])@]";
+      Format.fprintf fmt "@[(Union@ ";
+      GT.list.GT.plugins#fmt (fun fmt (l,r) ->
+        Format.fprintf fmt "@[⦗@,@[%a@], @[%a@]@,⦘@]" for_pf l fself_term r
+      ) fmt ps;
+      (* List.iter ps ~f:(fun (l,r) ->
+        Format.fprintf fmt "@[; @[⦗@,@[%a@], @[%a@]@,⦘@]@]" for_pf l fself_term r
+      ); *)
+      Format.fprintf fmt ")@]";
       (* Format.fprintf fmt "Union@ @[(@,%a@,)@]"
         (GT.fmt GT.list
             (fun fmt (l,r) -> Format.fprintf fmt "(%a,%a)" for_pf l fself_term r)
@@ -125,46 +129,45 @@ class ['extra_api] my_fmt_api
       )
       for_api)
     method! c_Nil fmt _ = Format.fprintf fmt "[]"
-    method! c_Cons fmt xs _ _ = 
-      Format.fprintf fmt "@[[ ";
-      List.iter xs ~f:(fun (l,r) -> 
-        Format.fprintf fmt "@[%a@ ↦@ %a;@]@ " (GT.fmt MyIdent.t) l for_term r);
-      Format.fprintf fmt " ]@]"
+    method! c_Cons fmt xs _ _ =
+      let f = fun fmt (l,r) ->
+        Format.fprintf fmt "@[%a@ ↦@ %a@]" (GT.fmt MyIdent.t) l for_term r
+      in
+      GT.list.GT.plugins#fmt f fmt xs
   end
+
 class ['extra_t] my_fmt_t ((for_api, for_pf, fself_t, for_term, for_heap)
                                  as _mutuals_pack)
   =
   object
     inherit  ['extra_t] fmt_t_t_stub _mutuals_pack
-    
+
     method! c_HAssoc fmt _ xs =
       Format.fprintf fmt "⟦";
-      List.iter xs ~f:(fun (ident,term) -> 
+      List.iter xs ~f:(fun (ident,term) ->
         Format.fprintf fmt "@[⦗@,%a, %a@,⦘@]" (GT.fmt MyIdent.t) ident for_term term
       );
-      Format.fprintf fmt "⟧";
-        (* Format.fprintf fmt "HAssoc@ @[(@,%a@,)@]"
-          (GT.fmt GT.list
-                (fun inh subj ->
-                      GT.fmt GT.tuple2
-                        (GT.fmt MyIdent.t)
-                        for_term inh subj) ) xs; *)
-      ()
+      Format.fprintf fmt "⟧"
     method! c_HCmps fmt _ l r =
       Format.fprintf fmt "@[(%a@ ∘@ %a)@]" for_heap l for_heap r
     method c_HCall inh___070_ _ _x__071_ _x__072_ =
       Format.fprintf inh___070_ "(HCall@ @[(@,%a,@,@ %a@,)@])" for_term
         _x__071_ for_term _x__072_
+    method c_HMerge fmt _ _x__066_ =
+      Format.fprintf fmt "@[(HMerge@ @[";
+      Format.fprintf fmt "%a" (GT.fmt GT.list (GT.fmt GT.tuple2 for_pf fself_t)) _x__066_;
+      Format.fprintf fmt "@])@]"
+
     method! c_HEmpty inh___073_ _ = Format.fprintf inh___073_ "ε"
   end
-class ['extra_pf] my_fmt_pf 
+class ['extra_pf] my_fmt_pf
         ((for_api, fself_pf, for_t, for_term, for_heap) as _mutuals_pack)
   =
   object
     inherit ['extra_pf] fmt_pf_t_stub _mutuals_pack
     method! c_LogicBinOp inh___050_ _ _x__051_ _x__052_ _x__053_ =
       Format.fprintf inh___050_ "@[(@,%a,@,@ %a@, %a@,)@]"
-        fself_pf _x__052_ 
+        fself_pf _x__052_
         fmt_logic_op _x__051_
         fself_pf _x__053_
     method! c_Not inh___054_ _ _x__055_ =
@@ -177,7 +180,7 @@ class ['extra_pf] my_fmt_pf
     method! c_PFFalse inh___060_ _ = Format.fprintf inh___060_ "FALSE"
     method! c_Term inh___061_ _ _x__062_ =
       Format.fprintf inh___061_ "@[(Term@ (%a))@]" for_term _x__062_
-  end  
+  end
 let fmt_term_0 = new my_fmt_term
 let fmt_pf_0 = new my_fmt_pf
 let fmt_api_0 = new my_fmt_api
@@ -235,7 +238,7 @@ let heap = {
   }
 
 (* End of Pretty-printing boilerplate *)
-let pp_term () t = 
+let pp_term () t =
   Format.asprintf "%a" term.GT.plugins#fmt t
 
 let pp_heap () h = Format.asprintf "%a" heap.GT.plugins#fmt h
@@ -257,7 +260,7 @@ let pf_term el = Term el
 let pf_not pf = Not pf
 let pf_binop op f1 f2 = LogicBinOp (op, f1, f2)
 let pf_eq id1 id2 = EQident (id1, id2)
-let pf_conj_list = function 
+let pf_conj_list = function
   | [] -> PFTrue
   | h::hs -> List.fold_left ~init:h hs ~f:(pf_binop Conj)
 let hempty : t = HEmpty
@@ -316,54 +319,54 @@ and fat_dot_pf heap pf = match pf with
   | EQident (l,r) -> failwiths "not implemented %s %d" __FILE__ __LINE__
 and simplify_pf pf = pf
 
-let rec hdot_defined hs term = 
-  match term with 
+let rec hdot_defined hs term =
+  match term with
   | LI (None, ident) -> read_ident_defined hs ident
   | LI (Some _, ident) -> failwiths "not implemented %s %d" __FILE__ __LINE__
   | BinOp (op, l, r) -> BinOp (op, hdot_defined hs l, hdot_defined hs r)
-  | Unit 
+  | Unit
   | CInt _ -> term
   | Union us     -> assert false
-  | Call (f,arg) -> 
+  | Call (f,arg) ->
       Format.eprintf "TODO: not implemented %s %d\n%!" __FILE__ __LINE__;
       Call (hdot_defined hs f, hdot_defined hs arg)
-  | Lambda _ -> 
+  | Lambda _ ->
       Format.eprintf "TODO: not implemented %s %d\n%!" __FILE__ __LINE__;
       term
-  
-and read_ident_defined hs ident = 
-  if List.Assoc.mem hs ident ~equal:MyIdent.equal 
-  then List.Assoc.find_exn hs ident ~equal:MyIdent.equal 
-  else 
+
+and read_ident_defined hs ident =
+  if List.Assoc.mem hs ident ~equal:MyIdent.equal
+  then List.Assoc.find_exn hs ident ~equal:MyIdent.equal
+  else
     (* We should return UNION here *)
-    let positives = List.map hs ~f:(fun (k,v) -> 
+    let positives = List.map hs ~f:(fun (k,v) ->
       (pf_eq k ident, v)
     )
-    in 
+    in
     let neg = pf_conj_list @@ List.map hs ~f:(fun (k,_) -> pf_not @@ pf_eq k ident) in
     union @@ (neg, li ident) :: positives
 
-let write_ident_defined hs ident (newval: term) : heap = 
-  let positives = List.map hs ~f:(fun (k,v) -> 
-      let newh = List.filter hs ~f:(fun (i,_) -> not (MyIdent.equal i k)) in 
-      let newh = (ident, newval) :: newh in 
+let write_ident_defined hs ident (newval: term) : heap =
+  let positives = List.map hs ~f:(fun (k,v) ->
+      let newh = List.filter hs ~f:(fun (i,_) -> not (MyIdent.equal i k)) in
+      let newh = (ident, newval) :: newh in
       (pf_eq k ident, HAssoc newh)
   )
-  in 
+  in
   let neg = pf_conj_list @@ List.map hs ~f:(fun (k,_) -> pf_not @@ pf_eq k ident) in
   HMerge ( (neg, HAssoc ((ident, newval) :: hs)) :: positives)
 
 (**
- *  
+ *
  *)
 let hcmps_defined ms ns =
   (* TODO: fancy algorithm here *)
-  let rec mutate ns a = a in 
-  fold_defined ns ~init:[] ~f:(fun acc (k,v) -> 
-    let a = fat_dot (HAssoc ms) v in 
+  let rec mutate ns a = a in
+  fold_defined ns ~init:[] ~f:(fun acc (k,v) ->
+    let a = fat_dot (HAssoc ms) v in
     (k, mutate ns a) :: acc
   )
-  
+
 
 (** Heap operations *)
 let hcmps : t -> t -> t = fun a b ->
