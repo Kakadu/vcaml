@@ -203,8 +203,6 @@ let work { Misc.sourcefile = filename } (t: Typedtree.structure) =
   Format.printf "\n\n%!";
   
   let api,h = process_str (Heap.Api.empty) t in
-  Sexplib.Sexp.output_hum_indent 2 stdout @@ Heap.sexp_of_t h;
-  Format.printf "\n\n%!";
-  Sexplib.Sexp.output_hum_indent 2 stdout @@ Heap.sexp_of_api (fst api);
-  Format.printf "\n%!";
+  Format.printf "%a\n\n%!" Heap.fmt_heap h;
+  Format.printf "%a\n\n%!" Heap.fmt_api (fst api);
   ()

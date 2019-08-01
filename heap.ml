@@ -17,7 +17,7 @@ module MyIdent = struct
 
   let t = { GT.gcata = (fun _ _ _ -> assert false) 
           ; GT.plugins = object 
-              method fmt fmt o = Format.fprintf fmt "<someident>"
+              method fmt fmt o = Format.fprintf fmt "%s" (Ident.unique_name o)
           end
           ; GT.fix = (fun _ -> assert false)
           }
@@ -25,7 +25,12 @@ end
 
 (* type cre_mode = Assign | Const [@@deriving gt ~options:{ fmt }] *)
 let pp_longident () lident = Longident.flatten lident |> String.concat ~sep:"."
-type term = LI of heap GT.option * MyIdent.t
+
+type logic_op = Conj | Disj [@@deriving gt ~options:{ fmt }]
+type op = | Plus | Minus | LT | LE | GT | GE | Eq [@@deriving gt ~options:{ fmt }]
+
+type api = (MyIdent.t * term) GT.list
+and term = LI of heap GT.option * MyIdent.t
           | CInt of GT.int
           | BinOp of op * term * term
           | Unit
@@ -37,7 +42,7 @@ type term = LI of heap GT.option * MyIdent.t
                       ; lam_body  : term
                       ; lam_is_rec: GT.bool
                       }
-and api = (MyIdent.t * term) GT.list [@@deriving gt ~options:{ fmt }]
+
 (* TODO: it should be path here *)
 and t = HAssoc of (MyIdent.t * term) GT.list
         (* Heap should be a mapping from terms to terms (array access, for example)
@@ -47,19 +52,193 @@ and t = HAssoc of (MyIdent.t * term) GT.list
       | HCmps of heap * heap
       | HCall of term * term
       | HEmpty
-[@@deriving gt ~options:{ fmt }]
+
 and pf  = LogicBinOp of logic_op * pf * pf
         | Not of pf
         | EQident of MyIdent.t * MyIdent.t
         | PFTrue
         | PFFalse
         | Term of term
-[@@deriving gt ~options:{ fmt }]
-and logic_op = Conj | Disj [@@deriving gt ~options:{ fmt }]
-and op = | Plus | Minus | LT | LE | GT | GE | Eq [@@deriving gt ~options:{ fmt }]
 and heap = t [@@deriving gt ~options:{ fmt }]
-let pp_term () t = Sexplib.Sexp.to_string @@ sexp_of_term t
-let pp_heap () h = Sexplib.Sexp.to_string @@ sexp_of_heap h
+
+(* Pretty-printing boilerplate now *)
+
+let fmt_op fmt = function 
+  | Plus  -> Format.fprintf fmt "+"
+  | Minus -> Format.fprintf fmt "-"
+  | LT    -> Format.fprintf fmt "<"
+  | GT    -> Format.fprintf fmt ">"
+  | LE    -> Format.fprintf fmt "≤"
+  | GE    -> Format.fprintf fmt "≥" 
+  | Eq    -> Format.fprintf fmt "="
+
+let fmt_logic_op fmt = function 
+  | Conj -> Format.fprintf fmt "∧"
+  | Disj -> Format.fprintf fmt "∨"
+
+class ['extra_term] my_fmt_term 
+    ((for_api, for_pf, for_t, fself_term,for_heap) as _mutuals_pack)
+  =
+  object
+    inherit  ['extra_term] fmt_term_t_stub _mutuals_pack
+    method! c_Lambda fmt _ _x__090_ _x__091_ _x__092_ _x__093_ _x__094_ =
+      Format.fprintf fmt
+        "(Lambda @[<v>{ @[lam_argname@ =@ %a@]@,@[; @[lam_api@ =@ %a@]@]@,@[; lam_eff@,=@,%a@]@,@[; lam_body@,=@,%a@]@,@ "
+        (    GT.fmt GT.option (GT.fmt MyIdent.t) )
+        _x__090_ for_api _x__091_ for_heap _x__092_ fself_term _x__093_;
+      Format.fprintf fmt "@[; lam_is_rec@,=@,%b@]" _x__094_;
+      Format.fprintf fmt "})@]"
+    method! c_BinOp inh___079_ _ _x__080_ _x__081_ _x__082_ =
+      Format.fprintf inh___079_ "@[(@,%a@ %a@,@ %a)@]"
+        fself_term _x__081_ 
+        fmt_op _x__080_ 
+        fself_term _x__082_
+    method! c_CInt fmt _ = Format.fprintf fmt "%d"
+    method! c_LI fmt _ h ident =
+      match h with 
+      | None -> Format.fprintf fmt "@[(LI \"%a\")@]" (GT.fmt MyIdent.t ) ident 
+      | Some h -> 
+          Format.fprintf fmt "LI@ @[(@,%a,@,@ %a@,)@]"     for_heap h
+            (GT.fmt MyIdent.t) ident
+    method! c_Union fmt _ _x__088_ =
+      (* TODO: normal printing *)
+      Format.fprintf fmt "@[(Union@ @[[@ ";
+      List.iter _x__088_ ~f:(fun (l,r) -> 
+        Format.fprintf fmt "@[; ⦗@,%a, %a@,⦘@]" for_pf l fself_term r
+      );
+      Format.fprintf fmt "]@])@]";
+      (* Format.fprintf fmt "Union@ @[(@,%a@,)@]"
+        (GT.fmt GT.list
+            (fun fmt (l,r) -> Format.fprintf fmt "(%a,%a)" for_pf l fself_term r)
+        ) _x__088_; *)
+      ()
+  end
+class ['extra_api] my_fmt_api
+    ((for_api, for_pf, for_t, for_term,for_heap) as _mutuals_pack)
+  =
+  object
+    inherit  ['extra_api] fmt_api_t_stub _mutuals_pack
+    inherit  (([(MyIdent.t * term),'extra_api] GT.fmt_list_t)
+      (fun inh (l,r) ->
+          Format.fprintf inh "%a@ ↦@ %a" (GT.fmt MyIdent.t) l
+              for_term r
+      )
+      for_api)
+    method! c_Nil fmt _ = Format.fprintf fmt "[]"
+    method! c_Cons fmt xs _ _ = 
+      Format.fprintf fmt "@[[ ";
+      List.iter xs ~f:(fun (l,r) -> 
+        Format.fprintf fmt "@[%a@ ↦@ %a;@]@ " (GT.fmt MyIdent.t) l for_term r);
+      Format.fprintf fmt " ]@]"
+  end
+class ['extra_t] my_fmt_t ((for_api, for_pf, fself_t, for_term, for_heap)
+                                 as _mutuals_pack)
+  =
+  object
+    inherit  ['extra_t] fmt_t_t_stub _mutuals_pack
+    
+    method! c_HAssoc fmt _ xs =
+      Format.fprintf fmt "⟦";
+      List.iter xs ~f:(fun (ident,term) -> 
+        Format.fprintf fmt "@[⦗@,%a, %a@,⦘@]" (GT.fmt MyIdent.t) ident for_term term
+      );
+      Format.fprintf fmt "⟧";
+        (* Format.fprintf fmt "HAssoc@ @[(@,%a@,)@]"
+          (GT.fmt GT.list
+                (fun inh subj ->
+                      GT.fmt GT.tuple2
+                        (GT.fmt MyIdent.t)
+                        for_term inh subj) ) xs; *)
+      ()
+    method! c_HCmps fmt _ l r =
+      Format.fprintf fmt "@[(%a@ ∘@ %a)@]" for_heap l for_heap r
+    method c_HCall inh___070_ _ _x__071_ _x__072_ =
+      Format.fprintf inh___070_ "(HCall@ @[(@,%a,@,@ %a@,)@])" for_term
+        _x__071_ for_term _x__072_
+    method! c_HEmpty inh___073_ _ = Format.fprintf inh___073_ "ε"
+  end
+class ['extra_pf] my_fmt_pf 
+        ((for_api, fself_pf, for_t, for_term, for_heap) as _mutuals_pack)
+  =
+  object
+    inherit ['extra_pf] fmt_pf_t_stub _mutuals_pack
+    method! c_LogicBinOp inh___050_ _ _x__051_ _x__052_ _x__053_ =
+      Format.fprintf inh___050_ "@[(@,%a,@,@ %a@, %a@,)@]"
+        fself_pf _x__052_ 
+        fmt_logic_op _x__051_
+        fself_pf _x__053_
+    method! c_Not inh___054_ _ _x__055_ =
+      Format.fprintf inh___054_ "(¬%a)" fself_pf _x__055_
+    method! c_EQident inh___056_ _ _x__057_ _x__058_ =
+      Format.fprintf inh___056_ "@[(%a@ =@ %a)@]"
+        (GT.fmt MyIdent.t ) _x__057_
+        (GT.fmt MyIdent.t ) _x__058_
+    method! c_PFTrue inh___059_ _ = Format.fprintf inh___059_ "TRUE"
+    method! c_PFFalse inh___060_ _ = Format.fprintf inh___060_ "FALSE"
+    method! c_Term inh___061_ _ _x__062_ =
+      Format.fprintf inh___061_ "@[(Term@ (%a))@]" for_term _x__062_
+  end  
+let fmt_term_0 = new my_fmt_term
+let fmt_pf_0 = new my_fmt_pf
+let fmt_api_0 = new my_fmt_api
+let fmt_t_0 = new my_fmt_t
+let fmt_heap_0 = fmt_t_0
+let fmt_api eta =
+  let (f, _, _, _, _) =
+    fix_api fmt_api_0 fmt_pf_0 fmt_t_0 fmt_term_0 fmt_heap_0 in
+  f eta
+let fmt_pf eta =
+  let (_, f, _, _, _) =
+    fix_api fmt_api_0 fmt_pf_0 fmt_t_0 fmt_term_0 fmt_heap_0 in
+  f eta
+let fmt_t eta =
+  let (_, _, f, _, _) =
+    fix_api fmt_api_0 fmt_pf_0 fmt_t_0 fmt_term_0 fmt_heap_0 in
+  f eta
+let fmt_term eta =
+  let (_, _, _, f, _) =
+    fix_api fmt_api_0 fmt_pf_0 fmt_t_0 fmt_term_0 fmt_heap_0 in
+  f eta
+let fmt_heap eta =
+  let (_, _, _, _, f) =
+    fix_api fmt_api_0 fmt_pf_0 fmt_t_0 fmt_term_0 fmt_heap_0 in
+  f eta
+
+let api = {
+    GT.gcata = gcata_api;
+    GT.fix = fix_api;
+    GT.plugins = (object method fmt = fmt_api end)
+  }
+let _ = api
+let pf = {
+    GT.gcata = gcata_pf;
+    GT.fix = fix_api;
+    GT.plugins = (object method fmt = fmt_pf end)
+  }
+let _ = pf
+let t = {
+    GT.gcata = gcata_t;
+    GT.fix = fix_api;
+    GT.plugins = (object method fmt = fmt_t end)
+  }
+let _ = t
+let term =  {
+    GT.gcata = gcata_term;
+    GT.fix = fix_api;
+    GT.plugins = (object method fmt = fmt_term end)
+  }
+let _ = term
+let heap = {
+    GT.gcata = gcata_heap;
+    GT.fix = fix_api;
+    GT.plugins = (object method fmt = fmt_heap end)
+  }
+
+(* End of Pretty-printing boilerplate *)
+let pp_term () t = 
+  Format.asprintf "%a" term.GT.plugins#fmt t
+
+let pp_heap () h = Format.asprintf "%a" heap.GT.plugins#fmt h
 
 let fold_defined ~f ~init = List.fold_left ~init ~f
 (** Term operations *)
