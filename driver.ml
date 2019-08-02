@@ -5,7 +5,7 @@ open Vtypes
 
 module UntypeP = struct
   let expr e =
-    let untyped = Untypeast.default_mapper.expr Untypeast.default_mapper e in 
+    let untyped = Untypeast.default_mapper.expr Untypeast.default_mapper e in
     Format.asprintf "%a" (Printast.expression 0) untyped;
 end
 
@@ -38,7 +38,7 @@ let rec process_str api { str_items; _ } : Heap.Api.t * Vtypes.t =
   List.fold_left ~f:process_si ~init:(api, Heap.hempty) str_items
 and process_si (api,heap) { str_desc; _} : Heap.Api.t * Vtypes.t =
   match str_desc with
-| Tstr_value (recflg, [vb]) -> begin
+  | Tstr_value (recflg, [vb]) -> begin
     match process_vb (api, Heap.hempty) recflg vb with
     | (Some ident, ans, heff) ->
         ( Heap.Api.add api ident ans
@@ -162,12 +162,12 @@ and process_expr (api,heap) e =
     | Vtypes.Lambda {lam_argname; lam_eff; lam_api; lam_body} ->
         (* Format.eprintf "%s %d\n%!" __FILE__ __LINE__; *)
         (* for nonrecursive lambdas we need to compose its effect after binding the argument *)
-        let argb = match lam_argname with 
-          | None -> Heap.hempty 
+        let argb = match lam_argname with
+          | None -> Heap.hempty
           | Some argname -> Heap.hsingle argname arg_evaled
         in
-        let env_h   = (heap %%% arg_eff) %%% argb in 
-        let app_eff = env_h %%% lam_eff in 
+        let env_h   = (heap %%% arg_eff) %%% argb in
+        let app_eff = env_h %%% lam_eff in
         let app_rez = Heap.hdot env_h lam_body in
         (api, app_eff, app_rez)
         (* (api, Heap.hcmps argeff (Heap.hcall (Heap.li ident) ans), Heap.call (Heap.li ~heap ident) ans) *)

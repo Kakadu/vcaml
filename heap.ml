@@ -18,16 +18,16 @@ let eval_binop = function
   | Eq    -> (fun x y -> CBool (x=y))
 
 let rec simplify_term = function
-  | BinOp (op,l,r) -> begin 
-      match (simplify_term l, simplify_term r) with 
-      | (CInt n, CInt m) -> eval_binop op n m 
+  | BinOp (op,l,r) -> begin
+      match (simplify_term l, simplify_term r) with
+      | (CInt n, CInt m) -> eval_binop op n m
       | (l,r) -> BinOp (op,l,r)
   end
   | term -> term
 
-let rec simplify_pf = function 
-  | Not ph -> begin 
-      match simplify_pf ph with 
+let rec simplify_pf = function
+  | Not ph -> begin
+      match simplify_pf ph with
       | EQident (l,r) when Ident.equal l r -> PFFalse
       | Not ph  -> ph
       | PFTrue  -> PFFalse
@@ -35,14 +35,14 @@ let rec simplify_pf = function
       | ph      -> Not ph
     end
   | EQident (l,r) when Ident.equal l r -> PFTrue
-  | ph -> ph 
+  | ph -> ph
 
-let simplify_guards gs = 
-  let exception QQQ in 
-  List.filter_map gs ~f:(fun (ph, term) -> 
-    match simplify_pf ph with 
+let simplify_guards gs =
+  let exception QQQ in
+  List.filter_map gs ~f:(fun (ph, term) ->
+    match simplify_pf ph with
     | PFTrue -> Some (PFTrue, simplify_term term)
-    | PFFalse -> None 
+    | PFFalse -> None
     | pf -> Some (pf, simplify_term term)
   )
 
@@ -56,13 +56,17 @@ let cunit = Unit
 let lambda lam_is_rec lam_argname lam_api lam_eff lam_body =
   simplify_term @@ Lambda { lam_argname; lam_api; lam_eff; lam_body; lam_is_rec }
 let li ?heap longident = LI (heap, longident)
-let union xs = 
-  match simplify_guards xs with 
-  | [] -> failwiths "FIXME: Introduce unreachable term for empty union."
+let union xs =
+  match simplify_guards xs with
+  (* | [] -> failwiths "FIXME: Introduce unreachable term for empty union." *)
   | [(PFTrue, t)] -> t
   | xs -> Union xs
 let union2 g1 t1 g2 t2 = union [(g1,t1); (g2,t2)]
 let binop op a b = simplify_term @@ BinOp (op,a,b)
+
+let is_empty_union = function
+  | Union [] -> true
+  | _ -> false
 
 (** Propositonal formula operations *)
 
@@ -169,7 +173,9 @@ let write_ident_defined hs ident (newval: term) : defined_heap =
   )
   in
   (* FIXME: in case of new location should it really be a union of 1 case ? *)
-  (ident, union [ (neg, newval); (pf_not neg, li ident) ]) :: hs
+  let u = union [ (neg, newval) (*; (pf_not neg, li ident) *) ] in
+  (* Checking for empty union is important unless we want shitty shit in the result *)
+  if is_empty_union u then hs else (ident,u) :: hs
 
 (**
  *
@@ -191,9 +197,9 @@ let hcmps : t -> t -> t = fun a b ->
   | (HDefined xs, HDefined ys) -> HDefined (hcmps_defined xs  ys)
   | _ -> HCmps (a,b)
 
-let hdot heap term = 
-  match heap with 
-  | HDefined hs -> hdot_defined hs term 
+let hdot heap term =
+  match heap with
+  | HDefined hs -> hdot_defined hs term
   | HEmpty      -> term
   | _ -> failwiths "not implemented %s %d" __FILE__ __LINE__
 
