@@ -1,14 +1,12 @@
 open Base
 open Printf
 open Typedtree
+open Vtypes
 
 module UntypeP = struct
   let expr e =
-    let b = Buffer.create 20 in
-    let fmt = Format.formatter_of_buffer b in
-    Untypeast.default_mapper.expr Untypeast.default_mapper e |> Printast.expression 0 fmt;
-    Format.pp_print_flush fmt ();
-    Buffer.contents b
+    let untyped = Untypeast.default_mapper.expr Untypeast.default_mapper e in 
+    Format.asprintf "%a" (Printast.expression 0) untyped;
 
 end
 
@@ -26,7 +24,7 @@ let is_binop = function
   | "<=" | "<" | ">" | ">=" | "+" | "-"  -> true
   | _ -> false
 
-let failwiths = Heap.failwiths
+
 
 let find_lident api heap ident =
   match Heap.Api.is_pending api ident with
@@ -34,11 +32,11 @@ let find_lident api heap ident =
   | false ->
       match Heap.Api.find_ident_exn api ident with
       | term -> term
-      | exception Not_found -> failwiths "find_lident: can't find on ident '%a'" Heap.MyIdent.pp_string ident
+      | exception Not_found -> failwiths "find_lident: can't find on ident '%a'" MyIdent.pp_string ident
 
-let rec process_str api { str_items; _ } : Heap.Api.t * Heap.t =
+let rec process_str api { str_items; _ } : Heap.Api.t * Vtypes.t =
   List.fold_left ~f:process_si ~init:(api, Heap.hempty) str_items
-and process_si (api,heap) { str_desc; _} : Heap.Api.t * Heap.t =
+and process_si (api,heap) { str_desc; _} : Heap.Api.t * Vtypes.t =
   match str_desc with
 | Tstr_value (recflg, [vb]) -> begin
     match process_vb (api,heap) recflg vb with
@@ -49,7 +47,7 @@ and process_si (api,heap) { str_desc; _} : Heap.Api.t * Heap.t =
   end
 | Tstr_value (recflg, vbs) -> assert false
 | _ -> assert false
-and process_vb (api,heap) recflg { vb_pat; vb_expr; _ } : Heap.MyIdent.t option * Heap.term * Heap.t =
+and process_vb (api,heap) recflg { vb_pat; vb_expr; _ } : MyIdent.t option * Vtypes.term * Vtypes.t =
   (* returns maybe identifier,
    * rhs effect,
    * effect thats is created by binding creation *)
@@ -75,8 +73,8 @@ and process_vb (api,heap) recflg { vb_pat; vb_expr; _ } : Heap.MyIdent.t option 
  *)
 and process_expr (api,heap) e =
   match e.exp_desc with
-  | Texp_constant (Asttypes.Const_int n) -> (api, Heap.hempty, Heap.CInt n)
-  | Texp_construct ({txt=Lident "()"},_,[]) -> (api, Heap.hempty, Heap.Unit)
+  | Texp_constant (Asttypes.Const_int n) -> (api, Heap.hempty, Heap.cint n)
+  | Texp_construct ({txt=Lident "()"},_,[]) -> (api, Heap.hempty, Heap.cunit)
   | Texp_ident (Pident ident,{txt=lident},_) ->
     (* TODO: use path here *)
     (* identifiers are returned as is. No inlining yet, even for functions *)
@@ -114,11 +112,11 @@ and process_expr (api,heap) e =
         when is_binop opname -> begin
     (* binop *)
     let op = match opname with
-      | "<=" -> Heap.LE
-      | "<"  -> Heap.LT
-      | ">"  -> Heap.GT
-      | "+"  -> Heap.Plus
-      | "-"  -> Heap.Minus
+      | "<=" -> Vtypes.LE
+      | "<"  -> Vtypes.LT
+      | ">"  -> Vtypes.GT
+      | "+"  -> Vtypes.Plus
+      | "-"  -> Vtypes.Minus
       | _ -> failwiths "not supported (weakly typed code): '%s'" opname
     in
     (* Although we don't need to return updated API we return it
@@ -133,7 +131,7 @@ and process_expr (api,heap) e =
     (* Format.eprintf "Tracing '%s'" (UntypeP.expr e); *)
     let api_1,h1,r1 = process_expr (api,heap) rhs in
     let heap_ans = Heap.hcmps h1 (Heap.hsingle ident r1) in
-    (api_1, heap_ans, Heap.Unit)
+    (api_1, heap_ans, Heap.cunit)
     (* match Heap.Api.find_ident_exn api ident with
     | Heap.LI (h,ident) ->
       let heap_ans = Heap.hcmps h1 (Heap.hsingle ident r1) in
@@ -152,23 +150,23 @@ and process_expr (api,heap) e =
        But for recursive calls -- we shouldn't
      *)
     match find_lident api heap ident with
-    | Heap.Lambda { lam_is_rec=true; _ } ->
-        Format.eprintf "%s %d\n%!" __FILE__ __LINE__;
+    | Vtypes.Lambda { lam_is_rec=true; _ } ->
+        (* Format.eprintf "%s %d\n%!" __FILE__ __LINE__; *)
         (* recursive functions we left as is *)
         (api, Heap.hcmps argeff (Heap.hcall (Heap.li ident) ans), Heap.call (Heap.li ~heap ident) ans)
-    | Heap.Lambda {lam_argname; lam_eff; lam_api; lam_body} ->
-        Format.eprintf "%s %d\n%!" __FILE__ __LINE__;
+    | Vtypes.Lambda {lam_argname; lam_eff; lam_api; lam_body} ->
+        (* Format.eprintf "%s %d\n%!" __FILE__ __LINE__; *)
         (* Let's not inline recursive functions too *)
         (api, Heap.hcmps argeff (Heap.hcall (Heap.li ident) ans), Heap.call (Heap.li ~heap ident) ans)
         (* let app_eff = Heap.heap_subst argeff lam_argname ans in
         (api, app_eff, Heap.call (Heap.li ~heap ident) ans) *)
-    | Heap.LI (h, ident) as func ->
-        Format.eprintf "%s %d\n%!" __FILE__ __LINE__;
+    | Vtypes.LI (h, ident) as func ->
+        (* Format.eprintf "%s %d\n%!" __FILE__ __LINE__; *)
         (api, Heap.hcmps argeff (Heap.hcall (Heap.li ident) ans), Heap.call func ans)
-    | exception Not_found -> failwith (Printf.sprintf "Identifier unbound: '%a'" Heap.MyIdent.pp_string ident)
+    | exception Not_found -> failwith (Printf.sprintf "Identifier unbound: '%a'" Vtypes.MyIdent.pp_string ident)
     | ans_term ->
         failwith (sprintf "typecheck error? should not happed. Searched for ident %a. Got '%a'"
-                    Heap.MyIdent.pp_string ident
+                    Vtypes.MyIdent.pp_string ident
                     Heap.pp_term ans_term
                 )
   end
@@ -185,7 +183,7 @@ and process_expr (api,heap) e =
     let notg = Heap.pf_not g in
     (api, Heap.hmerge2     g h2 notg h3, Heap.union2 g th notg el)
   | Texp_match (what, cases, _exc_cases, _) -> begin
-    Format.eprintf "HERR\n%!";
+    (* Format.eprintf "HERR\n%!"; *)
 
     match cases with
     | [{c_lhs={pat_desc=Tpat_construct ({txt=Lident "()"},_,[])}; c_rhs}] ->
@@ -197,12 +195,12 @@ and process_expr (api,heap) e =
 
 
 let work { Misc.sourcefile = filename } (t: Typedtree.structure) =
-  Format.pp_set_margin Format.std_formatter 150;
+  Format.pp_set_margin Format.std_formatter 170;
   Format.printf "Processing implementation file '%s'\n%!" filename;
   Printtyped.implementation Format.std_formatter t;
   Format.printf "\n\n%!";
 
   let api,h = process_str (Heap.Api.empty) t in
-  Format.printf "%a\n\n%!" Heap.fmt_heap h;
-  Format.printf "%a\n\n%!" Heap.fmt_api (fst api);
+  Format.printf "%a\n\n%!" Vtypes.fmt_heap h;
+  Format.printf "%a\n\n%!" Vtypes.fmt_api (fst api);
   ()
