@@ -3,6 +3,7 @@ let gl = ref 0
 let foo () = gl := !gl + 2 
 let boo () = gl := !gl + 20
 let goo () = boo(); foo ()
+
 (* let rec f n = 
   if n<0 then ()
   else gl := !gl + 1

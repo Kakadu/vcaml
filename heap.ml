@@ -6,28 +6,76 @@ let pp_term () t =
 let pp_heap () h = Format.asprintf "%a" heap.GT.plugins#fmt h
 
 let fold_defined ~f ~init = List.fold_left ~init ~f
+
+(** Simplification *)
+let eval_binop = function
+  | Plus  -> (fun x y -> CInt  (x+y))
+  | Minus -> (fun x y -> CInt  (x+y))
+  | LT    -> (fun x y -> CBool (x<y))
+  | LE    -> (fun x y -> CBool (x<=y))
+  | GT    -> (fun x y -> CBool (x>y))
+  | GE    -> (fun x y -> CBool (x>=y))
+  | Eq    -> (fun x y -> CBool (x=y))
+
+let rec simplify_term = function
+  | BinOp (op,l,r) -> begin 
+      match (simplify_term l, simplify_term r) with 
+      | (CInt n, CInt m) -> eval_binop op n m 
+      | (l,r) -> BinOp (op,l,r)
+  end
+  | term -> term
+
+let rec simplify_pf = function 
+  | Not ph -> begin 
+      match simplify_pf ph with 
+      | EQident (l,r) when Ident.equal l r -> PFFalse
+      | Not ph  -> ph
+      | PFTrue  -> PFFalse
+      | PFFalse -> PFTrue
+      | ph      -> Not ph
+    end
+  | EQident (l,r) when Ident.equal l r -> PFTrue
+  | ph -> ph 
+
+let simplify_guards gs = 
+  let exception QQQ in 
+  List.filter_map gs ~f:(fun (ph, term) -> 
+    match simplify_pf ph with 
+    | PFTrue -> Some (PFTrue, simplify_term term)
+    | PFFalse -> None 
+    | pf -> Some (pf, simplify_term term)
+  )
+
 (** Term operations *)
 let call fexpr arg =
   (* Format.eprintf "constructing call of '%s' to '%s'\n" (pp_term () fexpr)  (pp_term () arg); *)
-  Call (fexpr, arg)
+  simplify_term @@ Call (fexpr, arg)
 let cint x = CInt x
 let cbool b = CBool b
 let cunit = Unit
 let lambda lam_is_rec lam_argname lam_api lam_eff lam_body =
-  Lambda { lam_argname; lam_api; lam_eff; lam_body; lam_is_rec }
+  simplify_term @@ Lambda { lam_argname; lam_api; lam_eff; lam_body; lam_is_rec }
 let li ?heap longident = LI (heap, longident)
-let union xs = Union xs
+let union xs = 
+  match simplify_guards xs with 
+  | [] -> failwiths "FIXME: Introduce unreachable term for empty union."
+  | [(PFTrue, t)] -> t
+  | xs -> Union xs
 let union2 g1 t1 g2 t2 = union [(g1,t1); (g2,t2)]
-let binop op a b = BinOp (op,a,b)
+let binop op a b = simplify_term @@ BinOp (op,a,b)
 
 (** Propositonal formula operations *)
+
 let pf_term el = Term el
-let pf_not pf = Not pf
-let pf_binop op f1 f2 = LogicBinOp (op, f1, f2)
-let pf_eq id1 id2 = EQident (id1, id2)
+let pf_not pf = simplify_pf @@ Not pf
+let pf_binop op f1 f2 = simplify_pf @@ LogicBinOp (op, f1, f2)
+let pf_eq id1 id2 = simplify_pf @@ EQident (id1, id2)
+let pf_neq id1 id2 = simplify_pf @@ pf_not @@ EQident (id1, id2)
 let pf_conj_list = function
   | [] -> PFTrue
   | h::hs -> List.fold_left ~init:h hs ~f:(pf_binop Conj)
+
+(** Heap construction *)
 let hempty : t = HEmpty
 let hsingle name el : t = HDefined [(name,el)]
 let hmerge2 g1 h1 g2 h2 = HMerge [(g1,h1); (g2,h2)]
@@ -86,6 +134,7 @@ and fat_dot_pf heap pf = match pf with
 and simplify_pf pf = pf
 *)
 
+(* FAT dot a.k.a. • *)
 let rec hdot_defined hs term =
   match term with
   | LI (None, ident) -> read_ident_defined hs ident
@@ -101,22 +150,6 @@ let rec hdot_defined hs term =
   | Lambda _ ->
       Format.eprintf "TODO: not implemented %s %d\n%!" __FILE__ __LINE__;
       term
-and eval_binop = function
-  | Plus  -> (fun x y -> cint (x+y))
-  | Minus -> (fun x y -> cint (x+y))
-  | LT    -> (fun x y -> cbool (x<y))
-  | LE    -> (fun x y -> cbool (x<=y))
-  | GT    -> (fun x y -> cbool (x>y))
-  | GE    -> (fun x y -> cbool (x>=y))
-  | Eq    -> (fun x y -> cbool (x=y))
-and simplify_term = function
-  | BinOp (op,l,r) -> begin 
-      match (simplify_term l, simplify_term r) with 
-      | (CInt n, CInt m) -> eval_binop op n m 
-      | (l,r) -> BinOp (op,l,r)
-  end
-  | term -> term
-
 and read_ident_defined hs ident =
   if List.Assoc.mem hs ident ~equal:MyIdent.equal
   then List.Assoc.find_exn hs ident ~equal:MyIdent.equal
@@ -129,27 +162,23 @@ and read_ident_defined hs ident =
     let neg = pf_conj_list @@ List.map hs ~f:(fun (k,_) -> pf_not @@ pf_eq k ident) in
     union @@ (neg, li ident) :: positives
 
-let write_ident_defined hs ident (newval: term) : heap =
-  let positives = List.map hs ~f:(fun (k,v) ->
-      let newh = List.filter hs ~f:(fun (i,_) -> not (MyIdent.equal i k)) in
-      let newh = (ident, newval) :: newh in
-      (pf_eq k ident, HDefined newh)
+let write_ident_defined hs ident (newval: term) : defined_heap =
+  let neg = pf_conj_list @@ List.map hs ~f:(fun (k,_) -> pf_not @@ pf_eq k ident) in
+  let hs = List.map hs ~f:(fun (k,oldval) ->
+      (k, union2 (pf_eq k ident) newval (pf_neq k ident) oldval)
   )
   in
-  let neg = pf_conj_list @@ List.map hs ~f:(fun (k,_) -> pf_not @@ pf_eq k ident) in
-  HMerge ( (neg, HDefined ((ident, newval) :: hs)) :: positives)
+  (* FIXME: in case of new location should it really be a union of 1 case ? *)
+  (ident, union [ (neg, newval); (pf_not neg, li ident) ]) :: hs
 
 (**
  *
  *)
-(* let hcmps_defined ms ns =
-  (* TODO: fancy algorithm here *)
-  let rec mutate ns a = a in
-  fold_defined ns ~init:[] ~f:(fun acc (k,v) ->
-    let a = fat_dot (HDefined ms) v in
-    (k, mutate ns a) :: acc
-  ) *)
-
+let hcmps_defined ms ns : defined_heap =
+  fold_defined ns ~init:ms ~f:(fun acc (k,v) ->
+    let v = simplify_term @@ hdot_defined ms v in
+    write_ident_defined acc k v
+  )
 
 (** Heap operations *)
 let hcmps : t -> t -> t = fun a b ->
@@ -159,15 +188,21 @@ let hcmps : t -> t -> t = fun a b ->
   match (a,b) with
   | (HEmpty,b) -> b
   | (a,HEmpty) -> a
-  (* | (HDefined xs, HDefined ys) -> HDefined (hcmps_defined xs  ys) *)
+  | (HDefined xs, HDefined ys) -> HDefined (hcmps_defined xs  ys)
   | _ -> HCmps (a,b)
 
-let rec heap_subst heap lident new_term =
+let hdot heap term = 
+  match heap with 
+  | HDefined hs -> hdot_defined hs term 
+  | HEmpty      -> term
+  | _ -> failwiths "not implemented %s %d" __FILE__ __LINE__
+
+(* let rec heap_subst heap lident new_term =
   Format.eprintf "heap_subst not implemented\n%!";
   heap
 and term_subst term lident new_term =
   Format.eprintf "heap_subst not implemented\n%!";
-  term
+  term *)
 
 module Api = struct
   type t = api * MyIdent.t list

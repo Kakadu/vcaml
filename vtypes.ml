@@ -42,7 +42,6 @@ and term  = LI of heap GT.option * MyIdent.t
                       ; lam_body  : term
                       ; lam_is_rec: GT.bool
                       }
-
 (* TODO: it should be path here *)
 and t = HDefined of (MyIdent.t * term) GT.list
         (* Heap should be a mapping from terms to terms (array access, for example)
@@ -61,6 +60,7 @@ and pf  = LogicBinOp of logic_op * pf * pf
         | Term of term
 and heap = t [@@deriving gt ~options:{ fmt }]
 
+type defined_heap = (MyIdent.t * term) list
 (* Pretty-printing boilerplate now *)
 
 let fmt_op fmt = function
@@ -84,7 +84,7 @@ class ['extra_term] my_fmt_term
     method! c_Lambda fmt _ _x__090_ _x__091_ _x__092_ _x__093_ _x__094_ =
       Format.fprintf fmt "(Lambda @[<v>{ ";
       Format.fprintf fmt "@[lam_argname@ =@ %a@]@," (GT.fmt GT.option (GT.fmt MyIdent.t)) _x__090_;
-      Format.fprintf fmt "@[; @[lam_api@ =@ %a@]@]@," for_api _x__091_;
+      (* Format.fprintf fmt "@[; @[lam_api@ =@ %a@]@]@," for_api _x__091_; *)
       Format.fprintf fmt "@[; @[lam_eff@ =@ %a@]@]@,"  for_heap _x__092_;
       Format.fprintf fmt "@[; @[lam_body@ =@ %a@]@]@," fself_term _x__093_;
       Format.fprintf fmt "@[; @[lam_is_rec@ =@ %b@]@]" _x__094_;
@@ -131,10 +131,16 @@ class ['extra_api] my_fmt_api
       for_api)
     method! c_Nil fmt _ = Format.fprintf fmt "[]"
     method! c_Cons fmt xs _ _ =
-      let f fmt (l,r) =
-        Format.fprintf fmt "@[%a@ ↦@ %a@]" (GT.fmt MyIdent.t) l for_term r
-      in
-      GT.list.GT.plugins#fmt f fmt xs
+      match xs with 
+      | [] -> Format.fprintf fmt "[]"
+      | (k,v)::xs -> 
+          Format.open_vbox 0;          
+          Format.fprintf fmt   "@[<hov>[@ %a@ ↦@ %a@]" (GT.fmt MyIdent.t) k for_term v;
+          List.iter xs ~f:(fun (l,r) ->
+            Format.fprintf fmt "@[<hov>;@ %a@ ↦@ %a@]" (GT.fmt MyIdent.t) l for_term r
+          );
+          Format.fprintf fmt "@ ]@]"
+      
   end
 
 class ['extra_t] my_fmt_t ((for_api, for_pf, fself_t, for_term, for_heap)
@@ -146,20 +152,20 @@ class ['extra_t] my_fmt_t ((for_api, for_pf, fself_t, for_term, for_heap)
     method! c_HDefined fmt _ xs =
       Format.fprintf fmt "⟦";
       List.iter xs ~f:(fun (ident,term) ->
-        Format.fprintf fmt "@[⦗@,%a, %a@,⦘@]" (GT.fmt MyIdent.t) ident for_term term
+        Format.fprintf fmt "@[⦗@,%a, %a@,⦘;@ @]" (GT.fmt MyIdent.t) ident for_term term
       );
       Format.fprintf fmt "⟧"
     method! c_HCmps fmt _ l r =
       Format.fprintf fmt "@[(%a@ ∘@ %a)@]" for_heap l for_heap r
-    method c_HCall inh___070_ _ _x__071_ _x__072_ =
-      Format.fprintf inh___070_ "(RecApp@ @[(@,%a,@,@ %a@,)@])" for_term
-        _x__071_ for_term _x__072_
+    method c_HCall fmt _ f arg =
+      Format.fprintf fmt "@[(RecApp@ @[(@,%a,@,@ %a@,)@])@]" 
+        for_term f for_term arg 
     method c_HMerge fmt _ _x__066_ =
       Format.fprintf fmt "@[(HMerge@ @[";
       Format.fprintf fmt "%a" (GT.fmt GT.list (GT.fmt GT.tuple2 for_pf fself_t)) _x__066_;
       Format.fprintf fmt "@])@]"
 
-    method! c_HEmpty inh___073_ _ = Format.fprintf inh___073_ "ε"
+    method! c_HEmpty fmt _ = Format.fprintf fmt "ε"
   end
 
 class ['extra_pf] my_fmt_pf
@@ -167,21 +173,26 @@ class ['extra_pf] my_fmt_pf
   =
   object
     inherit ['extra_pf] fmt_pf_t_stub _mutuals_pack
-    method! c_LogicBinOp fmt _ _x__051_ _x__052_ _x__053_ =
-      Format.fprintf fmt "@[(@,%a,@,@ %a@, %a@,)@]"
-        fself_pf _x__052_
-        fmt_logic_op _x__051_
-        fself_pf _x__053_
-    method! c_Not fmt _ _x__055_ =
-      Format.fprintf fmt "¬%a" fself_pf _x__055_
-    method! c_EQident fmt _ _x__057_ _x__058_ =
+    method! c_LogicBinOp fmt _ op l r =
+      Format.fprintf fmt "@[(@,%a@ %a@ %a@,)@]"
+        fself_pf l
+        fmt_logic_op op
+        fself_pf r
+    method! c_Not fmt subj f =
+      match subj with 
+      | Not (EQident (l,r)) ->
+          Format.fprintf fmt "@[(%a@ ≠@ %a)@]"
+            (GT.fmt MyIdent.t ) l
+            (GT.fmt MyIdent.t ) r
+      | _ -> Format.fprintf fmt "¬%a" fself_pf f
+    method! c_EQident fmt _ l r =
       Format.fprintf fmt "@[(%a@ =@ %a)@]"
-        (GT.fmt MyIdent.t ) _x__057_
-        (GT.fmt MyIdent.t ) _x__058_
-    method! c_PFTrue fmt _ = Format.fprintf fmt "TRUE"
+        (GT.fmt MyIdent.t ) l
+        (GT.fmt MyIdent.t ) r
+    method! c_PFTrue  fmt _ = Format.fprintf fmt "TRUE"
     method! c_PFFalse fmt _ = Format.fprintf fmt "FALSE"
-    method! c_Term fmt _ _x__062_ =
-      Format.fprintf fmt "@[%a@]" for_term _x__062_
+    method! c_Term fmt _ t =
+      Format.fprintf fmt "@[%a@]" for_term t
   end
 let fmt_term_0 = new my_fmt_term
 let fmt_pf_0 = new my_fmt_pf
