@@ -81,7 +81,8 @@ let pf_conj_list = function
 
 (** Heap construction *)
 let hempty : t = HEmpty
-let hsingle name el : t = HDefined [(name,el)]
+let hdefined xs = HDefined xs
+let hsingle name el : t = hdefined [(name,el)]
 let hmerge2 g1 h1 g2 h2 = HMerge [(g1,h1); (g2,h2)]
 let hmerge_list xs = HMerge xs
 let hcall f x = HCall (f,x)
@@ -142,18 +143,23 @@ and simplify_pf pf = pf
 let rec hdot_defined hs term =
   match term with
   | LI (None, ident) -> read_ident_defined hs ident
-  | LI (Some _, ident) -> failwiths "not implemented %s %d" __FILE__ __LINE__
+  | LI (Some hs2, ident) -> 
+      read_generalized (hcmps (hdefined hs) hs2) ident
   | BinOp (op, l, r) -> BinOp (op, hdot_defined hs l, hdot_defined hs r)
   | Unit
   | CBool _
   | CInt _ -> term
-  | Union us     -> assert false
+  | Union us     -> union @@ List.map us ~f:(fun (g,t) ->
+                      ( simplify_pf @@ GT.gmap pf (hdot_defined hs) g
+                      , hdot_defined hs t)
+                    )
   | Call (f,arg) ->
       Format.eprintf "TODO: not implemented %s %d\n%!" __FILE__ __LINE__;
       Call (hdot_defined hs f, hdot_defined hs arg)
   | Lambda _ ->
       Format.eprintf "TODO: not implemented %s %d\n%!" __FILE__ __LINE__;
       term
+
 and read_ident_defined hs ident =
   if List.Assoc.mem hs ident ~equal:MyIdent.equal
   then List.Assoc.find_exn hs ident ~equal:MyIdent.equal
@@ -166,7 +172,7 @@ and read_ident_defined hs ident =
     let neg = pf_conj_list @@ List.map hs ~f:(fun (k,_) -> pf_not @@ pf_eq k ident) in
     union @@ (neg, li ident) :: positives
 
-let write_ident_defined hs ident (newval: term) : defined_heap =
+and write_ident_defined hs ident (newval: term) : defined_heap =
   let neg = pf_conj_list @@ List.map hs ~f:(fun (k,_) -> pf_not @@ pf_eq k ident) in
   let hs = List.map hs ~f:(fun (k,oldval) ->
       (k, union2 (pf_eq k ident) newval (pf_neq k ident) oldval)
@@ -180,22 +186,37 @@ let write_ident_defined hs ident (newval: term) : defined_heap =
 (**
  *
  *)
-let hcmps_defined ms ns : defined_heap =
+and hcmps_defined ms ns : defined_heap =
   fold_defined ns ~init:ms ~f:(fun acc (k,v) ->
     let v = simplify_term @@ hdot_defined ms v in
     write_ident_defined acc k v
   )
-
-(** Heap operations *)
-let hcmps : t -> t -> t = fun a b ->
+and hdot_generalized heap term = 
+  term
+and read_generalized heap ident = li ~heap ident
+and hcmps : t -> t -> t = fun l r ->
   (* Format.eprintf "calling hcmps of\n%!";
   Format.eprintf "\t%s\n%!" (pp_heap () a);
   Format.eprintf "\t%s\n%!" (pp_heap () b); *)
-  match (a,b) with
-  | (HEmpty,b) -> b
-  | (a,HEmpty) -> a
-  | (HDefined xs, HDefined ys) -> HDefined (hcmps_defined xs  ys)
-  | _ -> HCmps (a,b)
+  match (l,r) with
+  | (HEmpty, h) -> h
+  | (h, HEmpty) -> h
+  | (HDefined xs, HDefined ys) -> HDefined (hcmps_defined xs ys)
+  | (HDefined xs, HMerge phs) -> 
+      hmerge_list @@ List.map phs ~f:(fun (pf,h) -> 
+        ( simplify_pf @@ (GT.gmap Vtypes.pf) (hdot_defined xs) pf
+        , hcmps l h )
+      )
+  | (_, HCmps(_,_))
+  | (HCmps(_,_), _) -> HCmps (l,r)
+  | h, HWrite (h2, id, v) -> HWrite (hcmps h h2, id, hdot_generalized h v)
+  | HWrite (h, id, v), HMerge xs -> HCmps (l,r)
+  | HMerge _, HMerge _
+  | _,HCall(_,_) 
+  | HCall (_,_),_ -> HCmps (l,r)
+  | HMerge _, HDefined _ -> HCmps (l,r)
+  | HWrite _, HDefined _ -> HCmps (l,r)
+  
 
 let hdot heap term =
   match heap with

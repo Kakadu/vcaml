@@ -4,7 +4,7 @@
 
 (executable
   (name main)
-  (libraries lib base sexplib compiler-libs.common GT)
+  (libraries base compiler-libs.common terminal_size GT)
   (flags (-strict-sequence -strict-formats -short-paths -keep-locs -open Base -w -3-9+32))
   (preprocess (staged_pps GT.ppx ppx_import ))
 )

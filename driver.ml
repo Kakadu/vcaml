@@ -208,7 +208,11 @@ and process_expr (api,heap) e =
 
 
 let work { Misc.sourcefile = filename } (t: Typedtree.structure) =
-  Format.pp_set_margin Format.std_formatter 170;
+  let () = 
+    let sz = Option.value ~default:170 (Terminal_size.get_columns ()) in 
+    Format.printf "terminal with = %d\n%!" sz;
+    Format.pp_set_margin Format.std_formatter (sz-1)
+  in
   (* Format.printf "Processing implementation file '%s'\n%!" filename;
   Printtyped.implementation Format.std_formatter t;
   Format.printf "\n\n%!"; *)

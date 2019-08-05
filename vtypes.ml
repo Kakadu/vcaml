@@ -10,13 +10,14 @@ module MyIdent = struct
   type t = Ident.t
 
   let to_string ident = Ident.unique_name ident
-  let sexp_of_t ident  = to_string ident |> Sexplib.Std.sexp_of_string
+  (* let sexp_of_t ident  = to_string ident |> Sexplib.Std.sexp_of_string *)
   let pp_string () = to_string
   let equal = Ident.equal
 
   let t = { GT.gcata = (fun _ _ _ -> assert false)
           ; GT.plugins = object
               method fmt fmt o = Format.fprintf fmt "%s" (Ident.unique_name o)
+              method gmap x = x
           end
           ; GT.fix = (fun _ -> assert false)
           }
@@ -25,9 +26,18 @@ end
 (* type cre_mode = Assign | Const [@@deriving gt ~options:{ fmt }] *)
 let pp_longident () lident = Longident.flatten lident |> String.concat ~sep:"."
 
-type logic_op = Conj | Disj [@@deriving gt ~options:{ fmt }]
-type op = | Plus | Minus | LT | LE | GT | GE | Eq [@@deriving gt ~options:{ fmt }]
+type logic_op = Conj | Disj [@@deriving gt ~options:{ fmt; gmap }]
+type op = | Plus | Minus | LT | LE | GT | GE | Eq [@@deriving gt ~options:{ fmt; gmap }]
 
+type 'term pf = LogicBinOp of logic_op * 'term pf * 'term pf
+              | Not of 'term pf
+              | EQident of MyIdent.t * MyIdent.t
+              | PFTrue
+              | PFFalse
+              | Term of 'term
+[@@deriving gt ~options:{ fmt; gmap }]
+
+(* **)
 type api = (MyIdent.t * term) GT.list
 and term  = LI of heap GT.option * MyIdent.t
           | CInt of GT.int
@@ -35,29 +45,25 @@ and term  = LI of heap GT.option * MyIdent.t
           | BinOp of op * term * term
           | Unit
           | Call of term * term
-          | Union of (pf * term) GT.list
+          | Union of (term pf * term) GT.list
           | Lambda of { lam_argname: MyIdent.t GT.option
-                      ; lam_api   : api
-                      ; lam_eff   : heap
-                      ; lam_body  : term
-                      ; lam_is_rec: GT.bool
+                      ; lam_api    : api
+                      ; lam_eff    : heap
+                      ; lam_body   : term
+                      ; lam_is_rec : GT.bool
                       }
 (* TODO: it should be path here *)
 and t = HDefined of (MyIdent.t * term) GT.list
         (* Heap should be a mapping from terms to terms (array access, for example)
          * but for fibonacci it doesn't matter
          *)
-      | HMerge of (pf * t) GT.list
+      | HMerge of (term pf * t) GT.list
+      | HWrite of t * MyIdent.t * term
       | HCmps of heap * heap
       | HCall of term * term
       | HEmpty
 
-and pf  = LogicBinOp of logic_op * pf * pf
-        | Not of pf
-        | EQident of MyIdent.t * MyIdent.t
-        | PFTrue
-        | PFFalse
-        | Term of term
+
 and heap = t [@@deriving gt ~options:{ fmt }]
 
 type defined_heap = (MyIdent.t * term) list
@@ -76,8 +82,43 @@ let fmt_logic_op fmt = function
   | Conj -> Format.fprintf fmt "∧"
   | Disj -> Format.fprintf fmt "∨"
 
+class ['a, 'extra_pf] my_fmt_pf for_term fself_pf =
+  object
+    inherit ['a, 'extra_pf] fmt_pf_t for_term fself_pf
+    method! c_LogicBinOp fmt _ op l r =
+      Format.fprintf fmt "@[(@,%a@ %a@ %a@,)@]"
+        fself_pf l
+        fmt_logic_op op
+        fself_pf r
+    method! c_Not fmt subj f =
+      match subj with 
+      | Not (EQident (l,r)) ->
+          Format.fprintf fmt "@[(%a@ ≠@ %a)@]"
+            (GT.fmt MyIdent.t ) l
+            (GT.fmt MyIdent.t ) r
+      | _ -> Format.fprintf fmt "¬%a" fself_pf f
+    method! c_EQident fmt _ l r =
+      Format.fprintf fmt "@[(%a@ =@ %a)@]"
+        (GT.fmt MyIdent.t ) l
+        (GT.fmt MyIdent.t ) r
+    method! c_PFTrue  fmt _ = Format.fprintf fmt "TRUE"
+    method! c_PFFalse fmt _ = Format.fprintf fmt "FALSE"
+    method! c_Term fmt _ t =
+      Format.fprintf fmt "@[%a@]" for_term t
+  end
+
+let pf =
+  {
+    GT.gcata = gcata_pf;
+    GT.fix = (fun eta -> GT.transform_gc gcata_pf eta);
+    GT.plugins = object 
+      method fmt fa = GT.transform_gc gcata_pf (new my_fmt_pf fa)
+      method gmap  = pf.plugins#gmap
+    end
+  }
+
 class ['extra_term] my_fmt_term
-    ((for_api, for_pf, for_t, fself_term,for_heap) as _mutuals_pack)
+    ((for_api, for_t, fself_term,for_heap) as _mutuals_pack)
   =
   object
     inherit  ['extra_term] fmt_term_t_stub _mutuals_pack
@@ -105,7 +146,7 @@ class ['extra_term] my_fmt_term
       (* TODO: normal printing *)
       Format.fprintf fmt "@[(Union@ ";
       GT.list.GT.plugins#fmt (fun fmt (l,r) ->
-        Format.fprintf fmt "@[⦗@,@[%a@], @[%a@]@,⦘@]" for_pf l fself_term r
+        Format.fprintf fmt "@[⦗@,@[%a@], @[%a@]@,⦘@]" (GT.fmt pf fself_term) l fself_term r
       ) fmt ps;
       (* List.iter ps ~f:(fun (l,r) ->
         Format.fprintf fmt "@[; @[⦗@,@[%a@], @[%a@]@,⦘@]@]" for_pf l fself_term r
@@ -119,7 +160,7 @@ class ['extra_term] my_fmt_term
   end
 
 class ['extra_api] my_fmt_api
-    ((for_api, for_pf, for_t, for_term,for_heap) as _mutuals_pack)
+    ((for_api, for_t, for_term,for_heap) as _mutuals_pack)
   =
   object
     inherit  ['extra_api] fmt_api_t_stub _mutuals_pack
@@ -143,8 +184,7 @@ class ['extra_api] my_fmt_api
       
   end
 
-class ['extra_t] my_fmt_t ((for_api, for_pf, fself_t, for_term, for_heap)
-                                 as _mutuals_pack)
+class ['extra_t] my_fmt_t ((for_api, fself_t, for_term, for_heap) as _mutuals_pack)
   =
   object
     inherit  ['extra_t] fmt_t_t_stub _mutuals_pack
@@ -162,62 +202,31 @@ class ['extra_t] my_fmt_t ((for_api, for_pf, fself_t, for_term, for_heap)
         for_term f for_term arg 
     method c_HMerge fmt _ _x__066_ =
       Format.fprintf fmt "@[(HMerge@ @[";
-      Format.fprintf fmt "%a" (GT.fmt GT.list (GT.fmt GT.tuple2 for_pf fself_t)) _x__066_;
+      Format.fprintf fmt "%a" (GT.fmt GT.list (GT.fmt GT.tuple2 (GT.fmt pf for_term) fself_t)) _x__066_;
       Format.fprintf fmt "@])@]"
 
     method! c_HEmpty fmt _ = Format.fprintf fmt "ε"
   end
 
-class ['extra_pf] my_fmt_pf
-        ((for_api, fself_pf, for_t, for_term, for_heap) as _mutuals_pack)
-  =
-  object
-    inherit ['extra_pf] fmt_pf_t_stub _mutuals_pack
-    method! c_LogicBinOp fmt _ op l r =
-      Format.fprintf fmt "@[(@,%a@ %a@ %a@,)@]"
-        fself_pf l
-        fmt_logic_op op
-        fself_pf r
-    method! c_Not fmt subj f =
-      match subj with 
-      | Not (EQident (l,r)) ->
-          Format.fprintf fmt "@[(%a@ ≠@ %a)@]"
-            (GT.fmt MyIdent.t ) l
-            (GT.fmt MyIdent.t ) r
-      | _ -> Format.fprintf fmt "¬%a" fself_pf f
-    method! c_EQident fmt _ l r =
-      Format.fprintf fmt "@[(%a@ =@ %a)@]"
-        (GT.fmt MyIdent.t ) l
-        (GT.fmt MyIdent.t ) r
-    method! c_PFTrue  fmt _ = Format.fprintf fmt "TRUE"
-    method! c_PFFalse fmt _ = Format.fprintf fmt "FALSE"
-    method! c_Term fmt _ t =
-      Format.fprintf fmt "@[%a@]" for_term t
-  end
 let fmt_term_0 = new my_fmt_term
-let fmt_pf_0 = new my_fmt_pf
 let fmt_api_0 = new my_fmt_api
 let fmt_t_0 = new my_fmt_t
 let fmt_heap_0 = fmt_t_0
 let fmt_api eta =
-  let (f, _, _, _, _) =
-    fix_api fmt_api_0 fmt_pf_0 fmt_t_0 fmt_term_0 fmt_heap_0 in
-  f eta
-let fmt_pf eta =
-  let (_, f, _, _, _) =
-    fix_api fmt_api_0 fmt_pf_0 fmt_t_0 fmt_term_0 fmt_heap_0 in
+  let (f, _, _, _) =
+    fix_api fmt_api_0  fmt_t_0 fmt_term_0 fmt_heap_0 in
   f eta
 let fmt_t eta =
-  let (_, _, f, _, _) =
-    fix_api fmt_api_0 fmt_pf_0 fmt_t_0 fmt_term_0 fmt_heap_0 in
+  let (_, f, _, _) =
+    fix_api fmt_api_0  fmt_t_0 fmt_term_0 fmt_heap_0 in
   f eta
 let fmt_term eta =
-  let (_, _, _, f, _) =
-    fix_api fmt_api_0 fmt_pf_0 fmt_t_0 fmt_term_0 fmt_heap_0 in
+  let (_, _, f, _) =
+    fix_api fmt_api_0  fmt_t_0 fmt_term_0 fmt_heap_0 in
   f eta
 let fmt_heap eta =
-  let (_, _, _, _, f) =
-    fix_api fmt_api_0 fmt_pf_0 fmt_t_0 fmt_term_0 fmt_heap_0 in
+  let (_, _, _, f) =
+    fix_api fmt_api_0  fmt_t_0 fmt_term_0 fmt_heap_0 in
   f eta
 
 let api = {
@@ -226,12 +235,7 @@ let api = {
     GT.plugins = (object method fmt = fmt_api end)
   }
 let _ = api
-let pf = {
-    GT.gcata = gcata_pf;
-    GT.fix = fix_api;
-    GT.plugins = (object method fmt = fmt_pf end)
-  }
-let _ = pf
+
 let t = {
     GT.gcata = gcata_t;
     GT.fix = fix_api;
