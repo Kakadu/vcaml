@@ -16,6 +16,8 @@ depends: [
   "ocamlfind" 
   "base"
   "dune" { build }
+  "GT"
+  "terminal_size"
 ]
 build: [
   [make]
