@@ -57,6 +57,7 @@ let lambda lam_is_rec lam_argname lam_api lam_eff lam_body =
   simplify_term @@ Lambda { lam_argname; lam_api; lam_eff; lam_body; lam_is_rec }
 let li ?heap longident = LI (heap, longident)
 let union xs =
+  (* TODO: optimize Union [ ⦗("n_1635" < 0), x⦘; ⦗¬("n_1635" < 0), x⦘] *)
   match simplify_guards xs with
   (* | [] -> failwiths "FIXME: Introduce unreachable term for empty union." *)
   | [(PFTrue, t)] -> t
@@ -143,7 +144,7 @@ and simplify_pf pf = pf
 let rec hdot_defined hs term =
   match term with
   | LI (None, ident) -> read_ident_defined hs ident
-  | LI (Some hs2, ident) -> 
+  | LI (Some hs2, ident) ->
       read_generalized (hcmps (hdefined hs) hs2) ident
   | BinOp (op, l, r) -> BinOp (op, hdot_defined hs l, hdot_defined hs r)
   | Unit
@@ -191,7 +192,7 @@ and hcmps_defined ms ns : defined_heap =
     let v = simplify_term @@ hdot_defined ms v in
     write_ident_defined acc k v
   )
-and hdot_generalized heap term = 
+and hdot_generalized heap term =
   term
 and read_generalized heap ident = li ~heap ident
 and hcmps : t -> t -> t = fun l r ->
@@ -202,8 +203,8 @@ and hcmps : t -> t -> t = fun l r ->
   | (HEmpty, h) -> h
   | (h, HEmpty) -> h
   | (HDefined xs, HDefined ys) -> HDefined (hcmps_defined xs ys)
-  | (HDefined xs, HMerge phs) -> 
-      hmerge_list @@ List.map phs ~f:(fun (pf,h) -> 
+  | (HDefined xs, HMerge phs) ->
+      hmerge_list @@ List.map phs ~f:(fun (pf,h) ->
         ( simplify_pf @@ (GT.gmap Vtypes.pf) (hdot_defined xs) pf
         , hcmps l h )
       )
@@ -212,11 +213,11 @@ and hcmps : t -> t -> t = fun l r ->
   | h, HWrite (h2, id, v) -> HWrite (hcmps h h2, id, hdot_generalized h v)
   | HWrite (h, id, v), HMerge xs -> HCmps (l,r)
   | HMerge _, HMerge _
-  | _,HCall(_,_) 
+  | _,HCall(_,_)
   | HCall (_,_),_ -> HCmps (l,r)
   | HMerge _, HDefined _ -> HCmps (l,r)
   | HWrite _, HDefined _ -> HCmps (l,r)
-  
+
 
 let hdot heap term =
   match heap with

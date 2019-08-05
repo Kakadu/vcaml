@@ -24,7 +24,9 @@ let is_binop = function
   | "<=" | "<" | ">" | ">=" | "+" | "-"  -> true
   | _ -> false
 
-
+exception IdentNotFound of MyIdent.t  * string
+let ident_not_found ident fmt =
+  Format.ksprintf (fun s -> raise (IdentNotFound (ident,s))) fmt
 
 let find_lident api heap ident =
   match Heap.Api.is_pending api ident with
@@ -32,7 +34,7 @@ let find_lident api heap ident =
   | false ->
       match Heap.Api.find_ident_exn api ident with
       | term -> term
-      | exception Not_found -> failwiths "find_lident: can't find on ident '%a'" MyIdent.pp_string ident
+      | exception Not_found -> ident_not_found ident "find_lident: can't find on ident '%a'" MyIdent.pp_string ident
 
 let rec process_str api { str_items; _ } : Heap.Api.t * Vtypes.t =
   List.fold_left ~f:process_si ~init:(api, Heap.hempty) str_items
@@ -56,7 +58,9 @@ and process_vb (api,heap) recflg { vb_pat; vb_expr; _ } : MyIdent.t option * Vty
   | Tpat_var (ident,_) ->
       let api = match recflg with
         | Nonrecursive -> api
-        | Recursive -> Heap.Api.add (Heap.Api.add_pending api ident) ident (Heap.li ident)
+        | Recursive ->
+            (* let api = Heap.Api.add api  ident (Heap.li ident) in *)
+            Heap.Api.add_pending api ident
       in
       let (_new_api,eff,ans) = process_expr (api, heap) vb_expr in
       (Some ident, ans, eff)
@@ -88,7 +92,7 @@ and process_expr (api,heap) e =
 
   | Texp_function { param; cases=[{c_guard=None; c_lhs={pat_desc=Tpat_var(argname,_)}; c_rhs}] } ->
         (* Processing `fun argname -> c_rhs` *)
-      let api = Heap.Api.add api param (Heap.li param) in
+      (* let api = Heap.Api.add api param (Heap.li param) in *)
       let api, h, ans = process_expr (api,heap) c_rhs in
       (* Format.eprintf "%s %d %a\n%!" __FILE__ __LINE__ Vtypes.t.GT.plugins#fmt h; *)
       (api, Heap.hempty, Heap.lambda false (Some argname) (fst api) h ans)
@@ -155,6 +159,13 @@ and process_expr (api,heap) e =
        But for recursive calls -- we shouldn't
      *)
     match find_lident api heap ident with
+    | exception IdentNotFound (_,_) -> begin
+        (* It could be a recursive call *)
+        if Heap.Api.is_pending api ident
+        then (api, heap, Heap.li ident)
+        else failwiths "(should not happen) not implemented %s %d" __FILE__ __LINE__
+    end
+
     | Vtypes.Lambda { lam_is_rec=true; _ } ->
         (* Format.eprintf "%s %d\n%!" __FILE__ __LINE__; *)
         (* recursive functions we left as is *)
@@ -176,7 +187,7 @@ and process_expr (api,heap) e =
     | Vtypes.LI (h, ident) as func ->
         (* Format.eprintf "%s %d\n%!" __FILE__ __LINE__; *)
         (api, Heap.hcmps arg_eff (Heap.hcall (Heap.li ident) arg_evaled), Heap.call func arg_evaled)
-    | exception Not_found -> failwith (Printf.sprintf "Identifier unbound: '%a'" Vtypes.MyIdent.pp_string ident)
+    (* | exception Not_found -> failwith (Printf.sprintf "Identifier unbound: '%a'" Vtypes.MyIdent.pp_string ident) *)
     | ans_term ->
         failwith (sprintf "typecheck error? should not happed. Searched for ident %a. Got '%a'"
                     Vtypes.MyIdent.pp_string ident
@@ -208,8 +219,8 @@ and process_expr (api,heap) e =
 
 
 let work { Misc.sourcefile = filename } (t: Typedtree.structure) =
-  let () = 
-    let sz = Option.value ~default:170 (Terminal_size.get_columns ()) in 
+  let () =
+    let sz = Option.value ~default:170 (Terminal_size.get_columns ()) in
     Format.printf "terminal with = %d\n%!" sz;
     Format.pp_set_margin Format.std_formatter (sz-1)
   in

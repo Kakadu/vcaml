@@ -37,6 +37,9 @@ type 'term pf = LogicBinOp of logic_op * 'term pf * 'term pf
               | Term of 'term
 [@@deriving gt ~options:{ fmt; gmap }]
 
+type mem_repr = MemLeaf of int
+              | MemBlock of {mem_tag: int; mem_sz: int; mem_cnt: mem_repr list }
+
 (* **)
 type api = (MyIdent.t * term) GT.list
 and term  = LI of heap GT.option * MyIdent.t
@@ -91,7 +94,7 @@ class ['a, 'extra_pf] my_fmt_pf for_term fself_pf =
         fmt_logic_op op
         fself_pf r
     method! c_Not fmt subj f =
-      match subj with 
+      match subj with
       | Not (EQident (l,r)) ->
           Format.fprintf fmt "@[(%a@ ≠@ %a)@]"
             (GT.fmt MyIdent.t ) l
@@ -111,7 +114,7 @@ let pf =
   {
     GT.gcata = gcata_pf;
     GT.fix = (fun eta -> GT.transform_gc gcata_pf eta);
-    GT.plugins = object 
+    GT.plugins = object
       method fmt fa = GT.transform_gc gcata_pf (new my_fmt_pf fa)
       method gmap  = pf.plugins#gmap
     end
@@ -172,16 +175,16 @@ class ['extra_api] my_fmt_api
       for_api)
     method! c_Nil fmt _ = Format.fprintf fmt "[]"
     method! c_Cons fmt xs _ _ =
-      match xs with 
+      match xs with
       | [] -> Format.fprintf fmt "[]"
-      | (k,v)::xs -> 
-          Format.open_vbox 0;          
+      | (k,v)::xs ->
+          Format.open_vbox 0;
           Format.fprintf fmt   "@[<hov>[@ %a@ ↦@ %a@]" (GT.fmt MyIdent.t) k for_term v;
           List.iter xs ~f:(fun (l,r) ->
             Format.fprintf fmt "@[<hov>;@ %a@ ↦@ %a@]" (GT.fmt MyIdent.t) l for_term r
           );
           Format.fprintf fmt "@ ]@]"
-      
+
   end
 
 class ['extra_t] my_fmt_t ((for_api, fself_t, for_term, for_heap) as _mutuals_pack)
@@ -198,8 +201,8 @@ class ['extra_t] my_fmt_t ((for_api, fself_t, for_term, for_heap) as _mutuals_pa
     method! c_HCmps fmt _ l r =
       Format.fprintf fmt "@[(%a@ ∘@ %a)@]" for_heap l for_heap r
     method c_HCall fmt _ f arg =
-      Format.fprintf fmt "@[(RecApp@ @[(@,%a,@,@ %a@,)@])@]" 
-        for_term f for_term arg 
+      Format.fprintf fmt "@[(RecApp@ @[(@,%a,@,@ %a@,)@])@]"
+        for_term f for_term arg
     method c_HMerge fmt _ _x__066_ =
       Format.fprintf fmt "@[(HMerge@ @[";
       Format.fprintf fmt "%a" (GT.fmt GT.list (GT.fmt GT.tuple2 (GT.fmt pf for_term) fself_t)) _x__066_;
