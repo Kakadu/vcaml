@@ -7,6 +7,18 @@ let pp_heap () h = Format.asprintf "%a" heap.GT.plugins#fmt h
 
 let fold_defined ~f ~init = List.fold_left ~init ~f
 
+let type_of_term = function 
+  | Union _ -> None
+  | CInt _  -> Some Predef.type_int
+  | CBool _ -> Some Predef.type_bool
+  | Unit -> Some Predef.type_unit 
+  | LI(_,_,t)
+  | BinOp (_,_,_,t)
+  | Lambda {lam_typ = t}
+  | Call (_,_,t) -> Some t
+
+  (* | _ -> failwiths "Not implemented %s %d" __FILE__ __LINE__ *)
+
 (** Simplification *)
 let eval_binop = function
   | Plus  -> (fun x y -> CInt  (x+y))
@@ -18,10 +30,10 @@ let eval_binop = function
   | Eq    -> (fun x y -> CBool (x=y))
 
 let rec simplify_term = function
-  | BinOp (op,l,r) -> begin
+  | BinOp (op,l,r,typ) -> begin
       match (simplify_term l, simplify_term r) with
       | (CInt n, CInt m) -> eval_binop op n m
-      | (l,r) -> BinOp (op,l,r)
+      | (l,r) -> BinOp (op,l,r,typ)
   end
   | term -> term
 
@@ -47,15 +59,15 @@ let simplify_guards gs =
   )
 
 (** Term operations *)
-let call fexpr arg =
+let call fexpr arg typ =
   (* Format.eprintf "constructing call of '%s' to '%s'\n" (pp_term () fexpr)  (pp_term () arg); *)
-  simplify_term @@ Call (fexpr, arg)
-let cint x = CInt x
+  simplify_term @@ Call (fexpr, arg, typ)
+let cint n = CInt n
 let cbool b = CBool b
 let cunit = Unit
-let lambda lam_is_rec lam_argname lam_api lam_eff lam_body =
-  simplify_term @@ Lambda { lam_argname; lam_api; lam_eff; lam_body; lam_is_rec }
-let li ?heap longident = LI (heap, longident)
+let lambda lam_is_rec lam_argname lam_api lam_eff lam_body lam_typ =
+  simplify_term @@ Lambda { lam_argname; lam_api; lam_eff; lam_body; lam_is_rec; lam_typ }
+let li ?heap longident typ = LI (heap, longident, typ)
 let union xs =
   (* TODO: optimize Union [ ⦗("n_1635" < 0), x⦘; ⦗¬("n_1635" < 0), x⦘] *)
   match simplify_guards xs with
@@ -63,7 +75,7 @@ let union xs =
   | [(PFTrue, t)] -> t
   | xs -> Union xs
 let union2 g1 t1 g2 t2 = union [(g1,t1); (g2,t2)]
-let binop op a b = simplify_term @@ BinOp (op,a,b)
+let binop op a b typ = simplify_term @@ BinOp (op,a,b,typ)
 
 let is_empty_union = function
   | Union [] -> true
@@ -140,13 +152,24 @@ and fat_dot_pf heap pf = match pf with
 and simplify_pf pf = pf
 *)
 
+let types_hack : Types.type_expr -> Types.type_expr -> bool = fun typ1 typ2 ->
+  Format.printf "types_hack '%a' and '%a'\n%!" Printtyp.type_expr typ1 Printtyp.type_expr typ2;
+  let s1 = Format.asprintf "%a" Printtyp.type_expr typ1 in
+  let s2 = Format.asprintf "%a" Printtyp.type_expr typ2 in
+  if phys_equal typ1 typ2 
+    || (String.equal s1 "int" && String.equal s2 "int ref")
+    || (String.equal s2 "int" && String.equal s1 "int ref")
+  then let () = Format.printf "It happend\n%!" in 
+          true 
+  else false
+
 (* FAT dot a.k.a. • *)
 let rec hdot_defined hs term =
   match term with
-  | LI (None, ident) -> read_ident_defined hs ident
-  | LI (Some hs2, ident) ->
-      read_generalized (hcmps (hdefined hs) hs2) ident
-  | BinOp (op, l, r) -> BinOp (op, hdot_defined hs l, hdot_defined hs r)
+  | LI (None, ident, typ) -> read_ident_defined hs ident typ
+  | LI (Some hs2, ident, typ) ->
+      read_generalized (hcmps (hdefined hs) hs2) ident typ
+  | BinOp (op, l, r, typ) -> BinOp (op, hdot_defined hs l, hdot_defined hs r, typ)
   | Unit
   | CBool _
   | CInt _ -> term
@@ -154,24 +177,32 @@ let rec hdot_defined hs term =
                       ( simplify_pf @@ GT.gmap pf (hdot_defined hs) g
                       , hdot_defined hs t)
                     )
-  | Call (f,arg) ->
+  | Call (f, arg, typ) ->
       Format.eprintf "TODO: not implemented %s %d\n%!" __FILE__ __LINE__;
-      Call (hdot_defined hs f, hdot_defined hs arg)
+      Call (hdot_defined hs f, hdot_defined hs arg, typ)
   | Lambda _ ->
       Format.eprintf "TODO: not implemented %s %d\n%!" __FILE__ __LINE__;
       term
 
-and read_ident_defined hs ident =
+and read_ident_defined hs ident typ =
   if List.Assoc.mem hs ident ~equal:MyIdent.equal
   then List.Assoc.find_exn hs ident ~equal:MyIdent.equal
   else
+    let may_equal = 
+      Defined.filter hs ~f:(fun (k,v) -> 
+        match Option.map (type_of_term v) ~f:(types_hack   typ) with
+        | None -> (* union or something *) true
+        | Some b -> b
+      )
+    in
+    
     (* We should return UNION here *)
-    let positives = List.map hs ~f:(fun (k,v) ->
-      (pf_eq k ident, v)
+    let positives = List.filter_map may_equal ~f:(fun (k,v) ->
+      Some (pf_eq k ident, v)
     )
     in
-    let neg = pf_conj_list @@ List.map hs ~f:(fun (k,_) -> pf_not @@ pf_eq k ident) in
-    union @@ (neg, li ident) :: positives
+    let neg = pf_conj_list @@ List.map may_equal ~f:(fun (k,_) -> pf_not @@ pf_eq k ident) in
+    union @@ (neg, li ident typ) :: positives
 
 and write_ident_defined hs ident (newval: term) : defined_heap =
   let neg = pf_conj_list @@ List.map hs ~f:(fun (k,_) -> pf_not @@ pf_eq k ident) in
@@ -194,7 +225,7 @@ and hcmps_defined ms ns : defined_heap =
   )
 and hdot_generalized heap term =
   term
-and read_generalized heap ident = li ~heap ident
+and read_generalized heap ident typ = li ~heap ident typ
 and hcmps : t -> t -> t = fun l r ->
   (* Format.eprintf "calling hcmps of\n%!";
   Format.eprintf "\t%s\n%!" (pp_heap () a);
@@ -249,9 +280,9 @@ module Api = struct
     assert false *)
   let find_ident_exn : t -> Ident.t -> term = fun (api,toplevel) ident ->
     List.Assoc.find_exn ~equal:MyIdent.equal api ident
-  let find_ident_li : t -> Ident.t -> term = fun (api,toplevel) ident ->
+  let find_ident_li : t -> Ident.t -> MyTypes.type_expr -> term = fun (api,toplevel) ident typ ->
     try find_ident_exn (api,toplevel) ident
-    with Not_found -> li ident
+    with Not_found -> li ident typ
 
 
 end

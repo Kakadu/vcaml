@@ -1,4 +1,5 @@
 let failwiths fmt = Format.kprintf failwith fmt
+let (>>=?) = Option.(>>=)
 
 module MyIdent = struct
   type longident = Longident.t =
@@ -8,7 +9,6 @@ module MyIdent = struct
     [@@deriving gt ~options:{ fmt }]
 
   type t = Ident.t
-
   let to_string ident = Ident.unique_name ident
   (* let sexp_of_t ident  = to_string ident |> Sexplib.Std.sexp_of_string *)
   let pp_string () = to_string
@@ -17,6 +17,18 @@ module MyIdent = struct
   let t = { GT.gcata = (fun _ _ _ -> assert false)
           ; GT.plugins = object
               method fmt fmt o = Format.fprintf fmt "%s" (Ident.unique_name o)
+              method gmap x = x
+          end
+          ; GT.fix = (fun _ -> assert false)
+          }
+end
+module MyTypes = struct 
+  type type_expr = Types.type_expr 
+
+  let type_expr = 
+          { GT.gcata = (fun _ _ _ -> assert false)
+          ; GT.plugins = object
+              method fmt fmt _ = Format.fprintf fmt "<a type>"
               method gmap x = x
           end
           ; GT.fix = (fun _ -> assert false)
@@ -42,18 +54,20 @@ type mem_repr = MemLeaf of int
 
 (* **)
 type api = (MyIdent.t * term) GT.list
-and term  = LI of heap GT.option * MyIdent.t
-          | CInt of GT.int
+and term  = CInt  of GT.int 
           | CBool of GT.bool
-          | BinOp of op * term * term
-          | Unit
-          | Call of term * term
+          | Unit 
+          (* int,bool and unit doesn't need types because we have them in Predef module *)
+          | LI of heap GT.option * MyIdent.t * MyTypes.type_expr
+          | BinOp of op * term * term * MyTypes.type_expr
+          | Call of term * term * MyTypes.type_expr
           | Union of (term pf * term) GT.list
           | Lambda of { lam_argname: MyIdent.t GT.option
                       ; lam_api    : api
                       ; lam_eff    : heap
                       ; lam_body   : term
                       ; lam_is_rec : GT.bool
+                      ; lam_typ    : MyTypes.type_expr
                       }
 (* TODO: it should be path here *)
 and t = HDefined of (MyIdent.t * term) GT.list
@@ -70,6 +84,11 @@ and t = HDefined of (MyIdent.t * term) GT.list
 and heap = t [@@deriving gt ~options:{ fmt }]
 
 type defined_heap = (MyIdent.t * term) list
+
+module Defined = struct 
+  type t = defined_heap
+  let filter = List.filter
+end 
 (* Pretty-printing boilerplate now *)
 
 let fmt_op fmt = function
@@ -125,21 +144,21 @@ class ['extra_term] my_fmt_term
   =
   object
     inherit  ['extra_term] fmt_term_t_stub _mutuals_pack
-    method! c_Lambda fmt _ _x__090_ _x__091_ _x__092_ _x__093_ _x__094_ =
+    method! c_Lambda fmt _ _x__090_ _api heap term flg _ =
       Format.fprintf fmt "(Lambda @[<v>{ ";
       Format.fprintf fmt "@[lam_argname@ =@ %a@]@," (GT.fmt GT.option (GT.fmt MyIdent.t)) _x__090_;
       (* Format.fprintf fmt "@[; @[lam_api@ =@ %a@]@]@," for_api _x__091_; *)
-      Format.fprintf fmt "@[; @[lam_eff@ =@ %a@]@]@,"  for_heap _x__092_;
-      Format.fprintf fmt "@[; @[lam_body@ =@ %a@]@]@," fself_term _x__093_;
-      Format.fprintf fmt "@[; @[lam_is_rec@ =@ %b@]@]" _x__094_;
+      Format.fprintf fmt "@[; @[lam_eff@ =@ %a@]@]@,"  for_heap heap;
+      Format.fprintf fmt "@[; @[lam_body@ =@ %a@]@]@," fself_term term;
+      Format.fprintf fmt "@[; @[lam_is_rec@ =@ %b@]@]" flg;
       Format.fprintf fmt "})@]"
-    method! c_BinOp inh___079_ _ op l r =
+    method! c_BinOp inh___079_ _ op l r _typ =
       Format.fprintf inh___079_ "@[(@,%a@ %a@,@ %a)@]"
         fself_term l
         fmt_op op
         fself_term r
-    method! c_CInt fmt _ = Format.fprintf fmt "%d"
-    method! c_LI fmt _ h ident =
+    method! c_CInt fmt _ n = Format.fprintf fmt "%d" n
+    method! c_LI fmt _ h ident _typ =
       match h with
       | None -> Format.fprintf fmt "@[\"%a\"@]" (GT.fmt MyIdent.t) ident
       | Some h ->

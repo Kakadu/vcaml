@@ -28,9 +28,9 @@ exception IdentNotFound of MyIdent.t  * string
 let ident_not_found ident fmt =
   Format.ksprintf (fun s -> raise (IdentNotFound (ident,s))) fmt
 
-let find_lident api heap ident =
+let find_lident api heap ident typ =
   match Heap.Api.is_pending api ident with
-  | true -> Heap.li ~heap ident
+  | true -> Heap.li ~heap ident typ
   | false ->
       match Heap.Api.find_ident_exn api ident with
       | term -> term
@@ -79,23 +79,23 @@ and process_expr (api,heap) e =
   match e.exp_desc with
   | Texp_constant (Asttypes.Const_int n) -> (api, Heap.hempty, Heap.cint n)
   | Texp_construct ({txt=Lident "()"},_,[]) -> (api, Heap.hempty, Heap.cunit)
-  | Texp_ident (Pident ident,{txt=lident},_) ->
+  | Texp_ident (Pident ident, _, { val_type }) ->
     (* TODO: use path here *)
     (* TODO: Where should I unroll functions? *)
     (* identifiers are returned as is. No inlining yet, even for functions *)
-    (api, heap, Heap.li ident)
+    (api, heap, Heap.li ident val_type)
   | Texp_function { cases=[{c_guard=None; c_lhs={pat_desc=Tpat_construct({txt=Lident "()"},_,[])}; c_rhs}] } ->
         (* Processing `fun () -> c_rhs` *)
     let api, h, ans = process_expr (api,heap) c_rhs in
     (* Format.eprintf "%s %d %a\n%!" __FILE__ __LINE__ Vtypes.t.GT.plugins#fmt h; *)
-    (api, Heap.hempty, Heap.lambda false None (fst api) h ans)
+    (api, Heap.hempty, Heap.lambda false None (fst api) h ans e.exp_type)
 
   | Texp_function { param; cases=[{c_guard=None; c_lhs={pat_desc=Tpat_var(argname,_)}; c_rhs}] } ->
         (* Processing `fun argname -> c_rhs` *)
       (* let api = Heap.Api.add api param (Heap.li param) in *)
       let api, h, ans = process_expr (api,heap) c_rhs in
       (* Format.eprintf "%s %d %a\n%!" __FILE__ __LINE__ Vtypes.t.GT.plugins#fmt h; *)
-      (api, Heap.hempty, Heap.lambda false (Some argname) (fst api) h ans)
+      (api, Heap.hempty, Heap.lambda false (Some argname) (fst api) h ans e.exp_type)
 
   | Texp_let (_recflg, [vb], body) -> begin
       match process_vb (api,heap) _recflg vb with
@@ -118,27 +118,27 @@ and process_expr (api,heap) e =
   | Texp_apply ({exp_desc=Texp_ident(_,{txt=Lident opname},_)}, [(_,Some l); (_,Some r) ])
         when is_binop opname -> begin
     (* binop *)
-    let op = match opname with
-      | "<=" -> Vtypes.LE
-      | "<"  -> Vtypes.LT
-      | ">"  -> Vtypes.GT
-      | ">=" -> Vtypes.GE
-      | "+"  -> Vtypes.Plus
-      | "-"  -> Vtypes.Minus
+    let op,rez_typ = match opname with
+      | "<=" -> Vtypes.LE, Predef.type_bool
+      | "<"  -> Vtypes.LT, Predef.type_bool
+      | ">"  -> Vtypes.GT, Predef.type_bool
+      | ">=" -> Vtypes.GE, Predef.type_bool
+      | "+"  -> Vtypes.Plus,  Predef.type_int
+      | "-"  -> Vtypes.Minus, Predef.type_int
       | _ -> failwiths "not supported (weakly typed code): '%s'" opname
     in
     (* Although we don't need to return updated API we return it
      * to have a global cache of function summaries *)
     let api_1,h1,l2 = process_expr (api,heap) l in
     let api_2,h2,r2 = process_expr (api_1,h1) r in
-    (api_2, h2, Heap.binop op l2 r2)
+    (api_2, h2, Heap.binop op l2 r2 rez_typ)
   end
   | Texp_apply ({exp_desc=Texp_ident(Pdot (Pident _ident,":=",_), _, _)},
                [(_,Some {exp_desc=Texp_ident(Pident ident,_,_)}); (_,Some rhs) ]) -> begin
         (* ident := rhs *)
     (* Format.eprintf "Tracing '%s'" (UntypeP.expr e); *)
     let api_1,h1,r1 = process_expr (api,heap) rhs in
-    Format.eprintf "%s %d %a\n" __FILE__ __LINE__ Vtypes.t.GT.plugins#fmt h1;
+    (* Format.eprintf "%s %d %a\n" __FILE__ __LINE__ Vtypes.t.GT.plugins#fmt h1; *)
     let heap_ans = Heap.hcmps h1 (Heap.hsingle ident r1) in
     (api_1, heap_ans, Heap.cunit)
     (* match Heap.Api.find_ident_exn api ident with
@@ -152,24 +152,26 @@ and process_expr (api,heap) e =
     let api,h,r = process_expr (api,heap) r in
     (api,h,r)
   end
-  | Texp_apply ({exp_desc=Texp_ident(Pident ident,_,_)}, [(_,Some arg)]) -> begin
+  | Texp_apply ({exp_desc=Texp_ident(Pident ident,_,{val_type})}, [(_,Some arg)]) -> begin
     (* Now: real function application *)
     let api,arg_eff,arg_evaled = process_expr (api, Heap.hempty) arg in
     (* now we need to compose effect of e with effect of call
        But for recursive calls -- we shouldn't
      *)
-    match find_lident api heap ident with
+    match find_lident api heap ident val_type with
     | exception IdentNotFound (_,_) -> begin
         (* It could be a recursive call *)
         if Heap.Api.is_pending api ident
-        then (api, heap, Heap.li ident)
+        then (api, heap, Heap.li ident val_type)
         else failwiths "(should not happen) not implemented %s %d" __FILE__ __LINE__
     end
 
     | Vtypes.Lambda { lam_is_rec=true; _ } ->
         (* Format.eprintf "%s %d\n%!" __FILE__ __LINE__; *)
         (* recursive functions we left as is *)
-        (api, Heap.hcmps arg_eff (Heap.hcall (Heap.li ident) arg_evaled), Heap.call (Heap.li ~heap ident) arg_evaled)
+        ( api
+        , Heap.hcmps arg_eff (Heap.hcall (Heap.li ident val_type) arg_evaled)
+        , Heap.call (Heap.li ~heap ident val_type) arg_evaled e.exp_type)
     | Vtypes.Lambda {lam_argname; lam_eff; lam_api; lam_body} ->
         (* Format.eprintf "%s %d\n%!" __FILE__ __LINE__; *)
         (* for nonrecursive lambdas we need to compose its effect after binding the argument *)
@@ -184,9 +186,10 @@ and process_expr (api,heap) e =
         (* (api, Heap.hcmps argeff (Heap.hcall (Heap.li ident) ans), Heap.call (Heap.li ~heap ident) ans) *)
         (* let app_eff = Heap.heap_subst argeff lam_argname ans in
         (api, app_eff, Heap.call (Heap.li ~heap ident) ans) *)
-    | Vtypes.LI (h, ident) as func ->
+    | Vtypes.LI (h, ident, typ) as func ->
         (* Format.eprintf "%s %d\n%!" __FILE__ __LINE__; *)
-        (api, Heap.hcmps arg_eff (Heap.hcall (Heap.li ident) arg_evaled), Heap.call func arg_evaled)
+        (* TODO: Which heap should I use when creating li? *)
+        (api, Heap.hcmps arg_eff (Heap.hcall (Heap.li ident typ) arg_evaled), Heap.call func arg_evaled e.exp_type)
     (* | exception Not_found -> failwith (Printf.sprintf "Identifier unbound: '%a'" Vtypes.MyIdent.pp_string ident) *)
     | ans_term ->
         failwith (sprintf "typecheck error? should not happed. Searched for ident %a. Got '%a'"
