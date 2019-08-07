@@ -88,7 +88,26 @@ type defined_heap = (MyIdent.t * term) list
 module Defined = struct 
   type t = defined_heap
   let filter = List.filter
+  let add xs k v =  (k,v) :: xs 
+  let hacky_fold ~cond ~f xs = 
+    List.fold_left xs ~init:([],[]) ~f:(fun (bad, acc) (k,v) -> 
+      if cond k v
+      then (k::bad, add acc k (f k v))
+      else (bad,    add acc k v)
+    )
+  let has_key xs k = 
+    try ignore (List.Assoc.find_exn xs k ~equal:MyIdent.equal); true 
+    with Not_found -> false
+
+  let equal xs ys ~f = 
+    Int.equal (List.length xs) (List.length ys) &&
+    List.for_all xs ~f:(fun (k,v) -> 
+      match List.Assoc.find ys ~equal:MyIdent.equal k with 
+      | None -> false 
+      | Some v2 -> f v v2
+    )
 end 
+
 (* Pretty-printing boilerplate now *)
 
 let fmt_op fmt = function
@@ -115,9 +134,9 @@ class ['a, 'extra_pf] my_fmt_pf for_term fself_pf =
     method! c_Not fmt subj f =
       match subj with
       | Not (EQident (l,r)) ->
-          Format.fprintf fmt "@[(%a@ ≠@ %a)@]"
-            (GT.fmt MyIdent.t ) l
-            (GT.fmt MyIdent.t ) r
+          Format.fprintf fmt "@[(%a@ ≠@ %a)@]" (GT.fmt MyIdent.t) l (GT.fmt MyIdent.t) r
+      | Not (Term (BinOp (LE,l,r,typ))) -> for_term fmt (BinOp (GT,l,r, typ))
+      | Not (Term (BinOp (GT,l,r,typ))) -> for_term fmt (BinOp (LE,l,r, typ))
       | _ -> Format.fprintf fmt "¬%a" fself_pf f
     method! c_EQident fmt _ l r =
       Format.fprintf fmt "@[(%a@ =@ %a)@]"
@@ -162,8 +181,8 @@ class ['extra_term] my_fmt_term
       match h with
       | None -> Format.fprintf fmt "@[\"%a\"@]" (GT.fmt MyIdent.t) ident
       | Some h ->
-          Format.fprintf fmt "LI@ @[(@,%a,@,@ \"%a\"@,)@]" for_heap h
-            (GT.fmt MyIdent.t) ident
+          (* Format.fprintf fmt "LI@ @[(@,%a,@,@ \"%a\"@,)@]" for_heap h (GT.fmt MyIdent.t) ident *)
+          Format.fprintf fmt "LI@ @[(@,...,@,@ \"%a\"@,)@]"  (GT.fmt MyIdent.t) ident
     method! c_Union fmt _ ps =
       (* TODO: normal printing *)
       Format.fprintf fmt "@[(Union@ ";
@@ -179,6 +198,9 @@ class ['extra_term] my_fmt_term
             (fun fmt (l,r) -> Format.fprintf fmt "(%a,%a)" for_pf l fself_term r)
         ) _x__088_; *)
       ()
+    method c_Call fmt _ f arg _typ =
+      Format.fprintf fmt "Call@ @[(@,%a,@,@ %a@,)@]" fself_term f fself_term arg
+
   end
 
 class ['extra_api] my_fmt_api
@@ -198,11 +220,11 @@ class ['extra_api] my_fmt_api
       | [] -> Format.fprintf fmt "[]"
       | (k,v)::xs ->
           Format.open_vbox 0;
-          Format.fprintf fmt   "@[<hov>[@ %a@ ↦@ %a@]" (GT.fmt MyIdent.t) k for_term v;
+          Format.fprintf fmt   "@[<hov>[@ %a@ ↦@ %a@]@]@," (GT.fmt MyIdent.t) k for_term v;
           List.iter xs ~f:(fun (l,r) ->
-            Format.fprintf fmt "@[<hov>;@ %a@ ↦@ %a@]" (GT.fmt MyIdent.t) l for_term r
+            Format.fprintf fmt "@[<hov>;@ %a@ ↦@ %a@]@]@," (GT.fmt MyIdent.t) l for_term r
           );
-          Format.fprintf fmt "@ ]@]"
+          Format.fprintf fmt "@ ]"
 
   end
 
@@ -212,11 +234,16 @@ class ['extra_t] my_fmt_t ((for_api, fself_t, for_term, for_heap) as _mutuals_pa
     inherit  ['extra_t] fmt_t_t_stub _mutuals_pack
 
     method! c_HDefined fmt _ xs =
-      Format.fprintf fmt "⟦";
-      List.iter xs ~f:(fun (ident,term) ->
-        Format.fprintf fmt "@[⦗@,%a, %a@,⦘;@ @]" (GT.fmt MyIdent.t) ident for_term term
-      );
-      Format.fprintf fmt "⟧"
+      match xs with 
+      | [] -> Format.fprintf fmt "⟦⟧"
+      | (hi,ht)::xs -> 
+          Format.open_hovbox 0;
+          Format.fprintf fmt   "@[⟦ ⦗%a,@ %a⦘@]" (GT.fmt MyIdent.t) hi for_term ht;
+          List.iter xs ~f:(fun (ident,term) ->
+            Format.fprintf fmt "@[; ⦗%a,@ %a⦘@]" (GT.fmt MyIdent.t) ident for_term term
+          );
+          Format.fprintf fmt "⟧";
+          Format.close_box ()
     method! c_HCmps fmt _ l r =
       Format.fprintf fmt "@[(%a@ ∘@ %a)@]" for_heap l for_heap r
     method c_HCall fmt _ f arg =

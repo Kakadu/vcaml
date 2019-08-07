@@ -32,7 +32,7 @@ let implementation ppf sourcefile outputprefix =
       ++ print_if ppf Clflags.dump_typedtree
         Printtyped.implementation_with_coercion
     in
-    Driver.work { Misc.sourcefile = sourcefile } typedtree
+    Vcore.Driver.work { Misc.sourcefile = sourcefile } typedtree
   with
     | Typetexp.Error (_loc,env,e) as exc ->
       Typetexp.report_error env Format.std_formatter e;

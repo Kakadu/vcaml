@@ -2,9 +2,16 @@
   (dev
     (flags (-strict-sequence -strict-formats -short-paths -keep-locs -w -3-9-32))))
 
-(executable
-  (name main)
+(library
+  (name vcore)
+  (modules vtypes heap driver)
   (libraries base compiler-libs.common terminal_size GT)
   (flags (-strict-sequence -strict-formats -short-paths -keep-locs -open Base -w -3-9+32))
-  (preprocess (staged_pps GT.ppx ppx_import ))
+  (preprocess (pps GT.ppx ppx_import))
+)
+
+(executable
+  (name main)
+  (modules main)
+  (libraries vcore)
 )

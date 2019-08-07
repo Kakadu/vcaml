@@ -1,0 +1,8 @@
+(executable
+  (libraries alcotest base vcore)
+  (name cmps_defined))
+
+(alias
+  (name runtest)
+  (action
+    (run ./cmps_defined.exe -e)))

@@ -198,9 +198,9 @@ and process_expr (api,heap) e =
                 )
   end
   | Texp_sequence (a,b) ->
-    let api,effa,___ = process_expr (api,heap) a in
-    let api,effb,ans = process_expr (api,heap) b in
-    (api, Heap.hcmps effa effb, ans)
+    let api,effa,___ = process_expr (api,Heap.hempty) a in
+    let api,effb,ans = process_expr (api,Heap.hempty) b in
+    (api, heap %%% effa %%% effb, ans)
   | Texp_ifthenelse (econd, ethen, Some eelse) ->
     let (api,h1, e) = process_expr (api,heap) econd in
     let h_after_cond = h1 in
@@ -210,12 +210,14 @@ and process_expr (api,heap) e =
     let notg = Heap.pf_not g in
     (api, Heap.hmerge2     g h2 notg h3, Heap.union2 g th notg el)
   | Texp_match (what, cases, _exc_cases, _) -> begin
-    (* Format.eprintf "HERR\n%!"; *)
+    Format.printf "HERR\n%!";
 
     match cases with
     | [{c_lhs={pat_desc=Tpat_construct ({txt=Lident "()"},_,[])}; c_rhs}] ->
-        let api, eff, _scrut = process_expr (api,heap) what in
-        process_expr (api,eff) c_rhs
+        let api, eff, _scrut = process_expr (api,Heap.hempty) what in
+        Format.printf "eff = %a\n%!" (GT.fmt Vtypes.heap) eff;
+        let api, nexteff, ans = process_expr (api,Heap.hempty) c_rhs in 
+        (api, heap %%% eff %%% nexteff, ans)
     | _ -> assert false
   end
   | _ -> failwith ("not implemented " ^ UntypeP.expr e)
@@ -225,11 +227,12 @@ let work { Misc.sourcefile = filename } (t: Typedtree.structure) =
   let () =
     let sz = Option.value ~default:170 (Terminal_size.get_columns ()) in
     Format.printf "terminal with = %d\n%!" sz;
-    Format.pp_set_margin Format.std_formatter (sz-1)
+    Format.pp_set_margin Format.std_formatter (sz-1);
+    Format.pp_set_max_indent Format.std_formatter 2000 (* (sz-1) *)
   in
-  (* Format.printf "Processing implementation file '%s'\n%!" filename;
+  Format.printf "Processing implementation file '%s'\n%!" filename;
   Printtyped.implementation Format.std_formatter t;
-  Format.printf "\n\n%!"; *)
+  Format.printf "\n\n%!";
 
   let api,h = process_str (Heap.Api.empty) t in
   Format.printf "%a\n\n%!" Vtypes.fmt_heap h;
