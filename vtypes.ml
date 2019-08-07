@@ -18,18 +18,20 @@ module MyIdent = struct
           ; GT.plugins = object
               method fmt fmt o = Format.fprintf fmt "%s" (Ident.unique_name o)
               method gmap x = x
+              method eq = equal
           end
           ; GT.fix = (fun _ -> assert false)
           }
 end
-module MyTypes = struct 
-  type type_expr = Types.type_expr 
+module MyTypes = struct
+  type type_expr = Types.type_expr
 
-  let type_expr = 
+  let type_expr =
           { GT.gcata = (fun _ _ _ -> assert false)
           ; GT.plugins = object
               method fmt fmt _ = Format.fprintf fmt "<a type>"
               method gmap x = x
+              method eq = phys_equal
           end
           ; GT.fix = (fun _ -> assert false)
           }
@@ -38,8 +40,8 @@ end
 (* type cre_mode = Assign | Const [@@deriving gt ~options:{ fmt }] *)
 let pp_longident () lident = Longident.flatten lident |> String.concat ~sep:"."
 
-type logic_op = Conj | Disj [@@deriving gt ~options:{ fmt; gmap }]
-type op = | Plus | Minus | LT | LE | GT | GE | Eq [@@deriving gt ~options:{ fmt; gmap }]
+type logic_op = Conj | Disj [@@deriving gt ~options:{ fmt; gmap; eq }]
+type op = | Plus | Minus | LT | LE | GT | GE | Eq [@@deriving gt ~options:{ fmt; gmap; eq }]
 
 type 'term pf = LogicBinOp of logic_op * 'term pf * 'term pf
               | Not of 'term pf
@@ -47,16 +49,16 @@ type 'term pf = LogicBinOp of logic_op * 'term pf * 'term pf
               | PFTrue
               | PFFalse
               | Term of 'term
-[@@deriving gt ~options:{ fmt; gmap }]
+[@@deriving gt ~options:{ fmt; gmap; eq }]
 
 type mem_repr = MemLeaf of int
               | MemBlock of {mem_tag: int; mem_sz: int; mem_cnt: mem_repr list }
 
 (* **)
 type api = (MyIdent.t * term) GT.list
-and term  = CInt  of GT.int 
+and term  = CInt  of GT.int
           | CBool of GT.bool
-          | Unit 
+          | Unit
           (* int,bool and unit doesn't need types because we have them in Predef module *)
           | LI of heap GT.option * MyIdent.t * MyTypes.type_expr
           | BinOp of op * term * term * MyTypes.type_expr
@@ -81,32 +83,32 @@ and t = HDefined of (MyIdent.t * term) GT.list
       | HEmpty
 
 
-and heap = t [@@deriving gt ~options:{ fmt }]
+and heap = t [@@deriving gt ~options:{ fmt; eq }]
 
 type defined_heap = (MyIdent.t * term) list
 
-module Defined = struct 
+module Defined = struct
   type t = defined_heap
   let filter = List.filter
-  let add xs k v =  (k,v) :: xs 
-  let hacky_fold ~cond ~f xs = 
-    List.fold_left xs ~init:([],[]) ~f:(fun (bad, acc) (k,v) -> 
+  let add xs k v =  (k,v) :: xs
+  let hacky_fold ~cond ~f xs =
+    List.fold_left xs ~init:([],[]) ~f:(fun (bad, acc) (k,v) ->
       if cond k v
       then (k::bad, add acc k (f k v))
       else (bad,    add acc k v)
     )
-  let has_key xs k = 
-    try ignore (List.Assoc.find_exn xs k ~equal:MyIdent.equal); true 
+  let has_key xs k =
+    try ignore (List.Assoc.find_exn xs k ~equal:MyIdent.equal); true
     with Not_found -> false
 
-  let equal xs ys ~f = 
+  let equal xs ys ~f =
     Int.equal (List.length xs) (List.length ys) &&
-    List.for_all xs ~f:(fun (k,v) -> 
-      match List.Assoc.find ys ~equal:MyIdent.equal k with 
-      | None -> false 
+    List.for_all xs ~f:(fun (k,v) ->
+      match List.Assoc.find ys ~equal:MyIdent.equal k with
+      | None -> false
       | Some v2 -> f v v2
     )
-end 
+end
 
 (* Pretty-printing boilerplate now *)
 
@@ -234,9 +236,9 @@ class ['extra_t] my_fmt_t ((for_api, fself_t, for_term, for_heap) as _mutuals_pa
     inherit  ['extra_t] fmt_t_t_stub _mutuals_pack
 
     method! c_HDefined fmt _ xs =
-      match xs with 
+      match xs with
       | [] -> Format.fprintf fmt "⟦⟧"
-      | (hi,ht)::xs -> 
+      | (hi,ht)::xs ->
           Format.open_hovbox 0;
           Format.fprintf fmt   "@[⟦ ⦗%a,@ %a⦘@]" (GT.fmt MyIdent.t) hi for_term ht;
           List.iter xs ~f:(fun (ident,term) ->
@@ -300,7 +302,10 @@ let _ = term
 let heap = {
     GT.gcata = gcata_heap;
     GT.fix = fix_api;
-    GT.plugins = (object method fmt = fmt_heap end)
+    GT.plugins = object
+      method fmt = fmt_heap
+      method eq = eq_heap
+    end
   }
 
 (* End of Pretty-printing boilerplate *)

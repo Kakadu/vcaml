@@ -3,6 +3,6 @@ _build
 
 /.merlin
 /lib/.merlin
-
+/vcaml.install
 
 

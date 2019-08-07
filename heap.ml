@@ -7,12 +7,12 @@ let pp_heap () h = Format.asprintf "%a" heap.GT.plugins#fmt h
 
 let fold_defined ~f ~init = List.fold_left ~init ~f
 
-let rec type_of_term = function 
+let rec type_of_term = function
   | Union [] -> None
   | Union ((_,t)::_) -> type_of_term t
   | CInt _  -> Some Predef.type_int
   | CBool _ -> Some Predef.type_bool
-  | Unit -> Some Predef.type_unit 
+  | Unit -> Some Predef.type_unit
   | LI(_,_,t)
   | BinOp (_,_,_,t)
   | Lambda {lam_typ = t}
@@ -88,9 +88,9 @@ let is_empty_union = function
 let pf_term el = Term el
 let pf_not pf = simplify_pf @@ Not pf
 let pf_binop op f1 f2 = simplify_pf @@ LogicBinOp (op, f1, f2)
-let pf_eq id1 id2 = 
-  (* if (String.equal (MyIdent.to_string id1) "loop_1637" && 
-      String.equal (MyIdent.to_string id2) "ndx_1003" 
+let pf_eq id1 id2 =
+  (* if (String.equal (MyIdent.to_string id1) "loop_1637" &&
+      String.equal (MyIdent.to_string id2) "ndx_1003"
     )
   then assert false; *)
   simplify_pf @@ EQident (id1, id2)
@@ -163,12 +163,12 @@ let types_hack : Types.type_expr -> Types.type_expr -> bool = fun typ1 typ2 ->
   (* Format.printf "types_hack '%a' and '%a'\n%!" Printtyp.type_expr typ1 Printtyp.type_expr typ2; *)
   let s1 = Format.asprintf "%a" Printtyp.type_expr typ1 in
   let s2 = Format.asprintf "%a" Printtyp.type_expr typ2 in
-  if phys_equal typ1 typ2 
+  if phys_equal typ1 typ2
     || (String.equal s1 "int" && String.equal s2 "int ref")
     || (String.equal s2 "int" && String.equal s1 "int ref")
-  then 
+  then
     (* let () = Format.printf "It happend\n%!" in  *)
-    true 
+    true
   else false
 
 (* FAT dot a.k.a. • *)
@@ -196,14 +196,14 @@ and read_ident_defined hs ident typ =
   if List.Assoc.mem hs ident ~equal:MyIdent.equal
   then List.Assoc.find_exn hs ident ~equal:MyIdent.equal
   else
-    let may_equal = 
-      Defined.filter hs ~f:(fun (k,v) -> 
+    let may_equal =
+      Defined.filter hs ~f:(fun (k,v) ->
         match Option.map (type_of_term v) ~f:(types_hack typ) with
         | None -> (* union or something *) true
         | Some b -> b
       )
     in
-    
+
     (* We should return UNION here *)
     let positives = List.filter_map may_equal ~f:(fun (k,v) ->
       Some (pf_eq k ident, v)
@@ -213,27 +213,27 @@ and read_ident_defined hs ident typ =
     union @@ (neg, li ident typ) :: positives
 
 and write_ident_defined hs ident (newval: term) : defined_heap =
-  Format.printf "write_ident_defined:\n\theap keys = %a\n%!" 
+  (* Format.printf "write_ident_defined:\n\theap keys = %a\n%!"
     (Format.pp_print_list ~pp_sep:(fun fmt () -> Format.fprintf fmt " ") (fun fmt (i,_) -> GT.fmt MyIdent.t fmt i)) hs;
   Format.printf "\tident is '%a'\n%!" (GT.fmt MyIdent.t) ident;
-  Format.printf "\tterm is '%a'\n%!" (GT.fmt Vtypes.term) newval;
-  let cond  = 
-    match type_of_term newval with 
-    | Some typ -> begin 
-          fun _ v -> 
+  Format.printf "\tterm is '%a'\n%!" (GT.fmt Vtypes.term) newval; *)
+  let cond  =
+    match type_of_term newval with
+    | Some typ -> begin
+          fun _ v ->
             match Option.map (type_of_term v) ~f:(types_hack typ) with
             | None -> (* union or something *) true
             | Some b -> b
     end
     | None -> (fun _ v -> print_endline "HERR"; true)
-  in 
-  let (may_be_equal,new_hs) = 
+  in
+  let (may_be_equal,new_hs) =
     Defined.hacky_fold hs ~cond ~f:(fun k oldval -> union2 (pf_eq k ident) newval (pf_neq k ident) oldval)
   in
   if List.is_empty may_be_equal
   then (* it is absolutely new location *)
-    (ident, newval) :: hs 
-  else 
+    (ident, newval) :: hs
+  else
     let negatives = pf_conj_list @@ List.map may_be_equal ~f:(fun k -> pf_not @@ pf_eq k ident) in
     (* FIXME: in case of new location should it really be a union of 1 case ? *)
     let u = union [ (negatives, newval) (*; (pf_not neg, li ident) *) ] in
@@ -241,8 +241,8 @@ and write_ident_defined hs ident (newval: term) : defined_heap =
     if is_empty_union u (* || Defined.has_key hs ident *)
     then new_hs else (ident,u) :: new_hs
 
-  
-  
+
+
 (**
  *
  *)
@@ -256,15 +256,15 @@ and hdot_generalized heap term =
   term
 and read_generalized heap ident typ = li ~heap ident typ
 and hcmps : t -> t -> t = fun l r ->
-  Format.printf "calling hcmps of\n%!";
+  (* Format.printf "calling hcmps of\n%!";
   Format.printf "\t%s\n%!" (pp_heap () l);
-  Format.printf "\t%s\n%!" (pp_heap () r);
+  Format.printf "\t%s\n%!" (pp_heap () r); *)
   match (l,r) with
   | (HEmpty, h) -> h
   | (h, HEmpty) -> h
-  | (HDefined xs, HDefined ys) -> 
-      let ans  = HDefined (hcmps_defined xs ys) in 
-      Format.printf "\t\t\t\t%a\n%!" (GT.fmt heap) ans;
+  | (HDefined xs, HDefined ys) ->
+      let ans  = HDefined (hcmps_defined xs ys) in
+      (* Format.printf "\t\t\t\t%a\n%!" (GT.fmt heap) ans; *)
       ans
   | (HDefined xs, HMerge phs) ->
       hmerge_list @@ List.map phs ~f:(fun (pf,h) ->
