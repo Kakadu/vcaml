@@ -17,10 +17,10 @@ let check_defined () =
   ()
 
 let suite =
-  [  "heap manipulation",
-        [ "denied heaps" , `Quick, check_defined
+  [  "heap_manip",
+        [ "defied heaps", `Quick, check_defined
         ]
   ]
 
-let () = Alcotest.run "cstruct" ( suite)
+let () = Alcotest.run "vcaml" ( suite)
 (* let () = check_alignment () *)

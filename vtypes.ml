@@ -22,6 +22,23 @@ module MyIdent = struct
           end
           ; GT.fix = (fun _ -> assert false)
           }
+  module Map = struct 
+    include Ident.Map 
+
+    class ['ia,'a,'sa, 'i, 'self, 'syn] t_t = object 
+    end
+    let gcata_t _ _ _ = assert false
+    let t =
+        { GT.gcata = gcata_t
+        ; GT.plugins = object
+            method fmt fa fmt o = Format.fprintf fmt "<indent_map>"
+            method gmap x = x
+            method eq fa = phys_equal
+        end
+        ; GT.fix = (fun _ -> assert false)
+        } 
+  end 
+
 end
 module MyTypes = struct
   type type_expr = Types.type_expr
@@ -37,7 +54,6 @@ module MyTypes = struct
           }
 end
 
-(* type cre_mode = Assign | Const [@@deriving gt ~options:{ fmt }] *)
 let pp_longident () lident = Longident.flatten lident |> String.concat ~sep:"."
 
 type logic_op = Conj | Disj [@@deriving gt ~options:{ fmt; gmap; eq }]
@@ -54,8 +70,10 @@ type 'term pf = LogicBinOp of logic_op * 'term pf * 'term pf
 type mem_repr = MemLeaf of int
               | MemBlock of {mem_tag: int; mem_sz: int; mem_cnt: mem_repr list }
 
+type rec_flag = Asttypes.rec_flag = Nonrecursive | Recursive [@@deriving gt ~options:{ fmt; eq }]
+
 (* **)
-type api = (MyIdent.t * term) GT.list
+type api = MyAPI of (rec_flag * term) MyIdent.Map.t 
 and term  = CInt  of GT.int
           | CBool of GT.bool
           | Unit
@@ -81,7 +99,6 @@ and t = HDefined of (MyIdent.t * term) GT.list
       | HCmps of heap * heap
       | HCall of term * term
       | HEmpty
-
 
 and heap = t [@@deriving gt ~options:{ fmt; eq }]
 
@@ -157,6 +174,7 @@ let pf =
     GT.plugins = object
       method fmt fa = GT.transform_gc gcata_pf (new my_fmt_pf fa)
       method gmap  = pf.plugins#gmap
+      method eq    = pf.plugins#eq
     end
   }
 
@@ -205,30 +223,38 @@ class ['extra_term] my_fmt_term
 
   end
 
+let hack_rec_flg fmt = function 
+  | Recursive    -> Format.fprintf fmt "|rec↦"
+  | Nonrecursive ->  Format.fprintf fmt "↦"
+
 class ['extra_api] my_fmt_api
     ((for_api, for_t, for_term,for_heap) as _mutuals_pack)
   =
   object
     inherit  ['extra_api] fmt_api_t_stub _mutuals_pack
-    inherit  (([(MyIdent.t * term),'extra_api] GT.fmt_list_t)
-      (fun inh (l,r) ->
-          Format.fprintf inh "%a@ ↦@ %a" (GT.fmt MyIdent.t) l
-              for_term r
-      )
-      for_api)
-    method! c_Nil fmt _ = Format.fprintf fmt "[]"
-    method! c_Cons fmt xs _ _ =
-      match xs with
-      | [] -> Format.fprintf fmt "[]"
-      | (k,v)::xs ->
-          Format.open_vbox 0;
-          Format.fprintf fmt   "@[<hov>[@ %a@ ↦@ %a@]@]@," (GT.fmt MyIdent.t) k for_term v;
-          List.iter xs ~f:(fun (l,r) ->
-            Format.fprintf fmt "@[<hov>;@ %a@ ↦@ %a@]@]@," (GT.fmt MyIdent.t) l for_term r
+        
+    method! c_MyAPI fmt _ mapa =
+      if Ident.Map.is_empty mapa 
+      then Format.fprintf fmt "[]"
+      else 
+        let (khead,(flg,thead)) = Ident.Map.min_binding mapa in 
+        Format.pp_open_vbox fmt 0;
+        (* Format.fprintf fmt   "@[<hov>[@ %a@ %a@ %a@]@]@," 
+            (GT.fmt MyIdent.t) khead
+            hack_rec_flg flg
+            for_term thead; *)
+        mapa |> Ident.Map.iter (fun k (flg,t) ->
+            Format.fprintf fmt "@[<h>%c@ @[%a@ %a@ %a@]@]@," 
+              (if MyIdent.equal k khead then '[' else ';')
+              (GT.fmt MyIdent.t) k
+              hack_rec_flg flg
+              for_term t
           );
-          Format.fprintf fmt "@ ]"
+          Format.fprintf fmt "]";
+          Format.pp_close_box fmt ()
 
   end
+
 
 class ['extra_t] my_fmt_t ((for_api, fself_t, for_term, for_heap) as _mutuals_pack)
   =
@@ -240,21 +266,31 @@ class ['extra_t] my_fmt_t ((for_api, fself_t, for_term, for_heap) as _mutuals_pa
       | [] -> Format.fprintf fmt "⟦⟧"
       | (hi,ht)::xs ->
           Format.open_hovbox 0;
-          Format.fprintf fmt   "@[⟦ ⦗%a,@ %a⦘@]" (GT.fmt MyIdent.t) hi for_term ht;
+          (* Format.fprintf fmt   "\x1b[31m"; *)
+          Format.fprintf fmt   "@[⟦ @[⦗%a,@ %a⦘@]@]" (GT.fmt MyIdent.t) hi for_term ht;
           List.iter xs ~f:(fun (ident,term) ->
-            Format.fprintf fmt "@[; ⦗%a,@ %a⦘@]" (GT.fmt MyIdent.t) ident for_term term
+            Format.fprintf fmt "@[; @[⦗%a,@ %a⦘@]@]" (GT.fmt MyIdent.t) ident for_term term
           );
           Format.fprintf fmt "⟧";
+          (* Format.fprintf fmt "\x1b[39;49m"; *)
           Format.close_box ()
     method! c_HCmps fmt _ l r =
       Format.fprintf fmt "@[(%a@ ∘@ %a)@]" for_heap l for_heap r
     method c_HCall fmt _ f arg =
       Format.fprintf fmt "@[(RecApp@ @[(@,%a,@,@ %a@,)@])@]"
         for_term f for_term arg
-    method c_HMerge fmt _ _x__066_ =
-      Format.fprintf fmt "@[(HMerge@ @[";
-      Format.fprintf fmt "%a" (GT.fmt GT.list (GT.fmt GT.tuple2 (GT.fmt pf for_term) fself_t)) _x__066_;
-      Format.fprintf fmt "@])@]"
+    method c_HMerge fmt _ pfs =
+      Format.fprintf fmt "@[<h>(HMerge@ ";
+      let () = match pfs with 
+        | [] -> Format.fprintf fmt "[]"
+        | x::xs -> 
+          Format.fprintf fmt "@[<v>";
+          let f = GT.fmt GT.tuple2 (GT.fmt pf for_term) fself_t in 
+          Format.fprintf fmt   "@[[ %a@]" f x;
+          List.iter xs ~f:(fun p -> Format.fprintf fmt "@,@[; @,%a@]@," f p);
+          Format.fprintf fmt "]@]"
+      in 
+      Format.fprintf fmt ")@]"
 
     method! c_HEmpty fmt _ = Format.fprintf fmt "ε"
   end
@@ -296,7 +332,10 @@ let _ = t
 let term =  {
     GT.gcata = gcata_term;
     GT.fix = fix_api;
-    GT.plugins = (object method fmt = fmt_term end)
+    GT.plugins = object 
+      method fmt = fmt_term 
+      method eq    = term.plugins#eq
+    end
   }
 let _ = term
 let heap = {

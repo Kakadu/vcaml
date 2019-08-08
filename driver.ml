@@ -33,7 +33,7 @@ let find_lident api heap ident typ =
   | true -> Heap.li ~heap ident typ
   | false ->
       match Heap.Api.find_ident_exn api ident with
-      | term -> term
+      | (_,term) -> term
       | exception Not_found -> ident_not_found ident "find_lident: can't find on ident '%a'" MyIdent.pp_string ident
 
 let rec process_str api { str_items; _ } : Heap.Api.t * Vtypes.t =
@@ -43,7 +43,7 @@ and process_si (api,heap) { str_desc; _} : Heap.Api.t * Vtypes.t =
   | Tstr_value (recflg, [vb]) -> begin
     match process_vb (api, Heap.hempty) recflg vb with
     | (Some ident, ans, heff) ->
-        ( Heap.Api.add api ident ans
+        ( Heap.Api.add api ident (recflg, ans)
         , Heap.hcmps heap heff)
     | _ -> assert false
   end
@@ -94,17 +94,18 @@ and process_expr (api,heap) e =
         (* Processing `fun argname -> c_rhs` *)
       (* let api = Heap.Api.add api param (Heap.li param) in *)
       let api, h, ans = process_expr (api,heap) c_rhs in
+      
       (* Format.eprintf "%s %d %a\n%!" __FILE__ __LINE__ Vtypes.t.GT.plugins#fmt h; *)
       (api, Heap.hempty, Heap.lambda false (Some argname) (fst api) h ans e.exp_type)
 
-  | Texp_let (_recflg, [vb], body) -> begin
-      match process_vb (api,heap) _recflg vb with
+  | Texp_let (recflg, [vb], body) -> begin
+      match process_vb (api,heap) recflg vb with
       | (Some ident, rhs, heff) ->
           (* we don't care about isolation here, so we compose heaps with toplevel one *)
           let heap = Heap.hcmps heap heff in
           let heap = Heap.hcmps heap (Heap.hsingle ident rhs) in
           (* we need to extend API before processing the body *)
-          let api = Heap.Api.add api ident rhs in
+          let api = Heap.Api.add api ident (recflg,rhs) in
           let api, heff3, ans = process_expr (api,heap) body in
           (api, heff3, ans)
       | _ -> assert false
@@ -166,7 +167,7 @@ and process_expr (api,heap) e =
         else failwiths "(should not happen) not implemented %s %d" __FILE__ __LINE__
     end
 
-    | Vtypes.Lambda { lam_is_rec=true; _ } ->
+    | Vtypes.Lambda  _ when Heap.Api.is_pending api ident || Heap.Api.is_recursive_exn api ident ->
         (* Format.eprintf "%s %d\n%!" __FILE__ __LINE__; *)
         (* recursive functions we left as is *)
         ( api
@@ -215,7 +216,7 @@ and process_expr (api,heap) e =
     match cases with
     | [{c_lhs={pat_desc=Tpat_construct ({txt=Lident "()"},_,[])}; c_rhs}] ->
         let api, eff, _scrut = process_expr (api,Heap.hempty) what in
-        Format.printf "eff = %a\n%!" (GT.fmt Vtypes.heap) eff;
+        (* Format.printf "eff = %a\n%!" (GT.fmt Vtypes.heap) eff; *)
         let api, nexteff, ans = process_expr (api,Heap.hempty) c_rhs in 
         (api, heap %%% eff %%% nexteff, ans)
     | _ -> assert false
@@ -230,11 +231,11 @@ let work { Misc.sourcefile = filename } (t: Typedtree.structure) =
     Format.pp_set_margin Format.std_formatter (sz-1);
     Format.pp_set_max_indent Format.std_formatter 2000 (* (sz-1) *)
   in
-  Format.printf "Processing implementation file '%s'\n%!" filename;
+  (* Format.printf "Processing implementation file '%s'\n%!" filename;
   Printtyped.implementation Format.std_formatter t;
-  Format.printf "\n\n%!";
+  Format.printf "\n\n%!"; *)
 
-  let api,h = process_str (Heap.Api.empty) t in
+  let api,h = process_str Heap.Api.empty t in
   Format.printf "%a\n\n%!" Vtypes.fmt_heap h;
-  Format.printf "%a\n\n%!" Vtypes.fmt_api (List.rev @@ fst api);
+  Format.printf "%a\n\n%!" Vtypes.fmt_api (fst api);
   ()
