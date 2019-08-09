@@ -80,7 +80,7 @@ and term  = CInt  of GT.int
           (* int,bool and unit doesn't need types because we have them in Predef module *)
           | LI of heap GT.option * MyIdent.t * MyTypes.type_expr
           | BinOp of op * term * term * MyTypes.type_expr
-          | Call of term * term * MyTypes.type_expr
+          | Call of term * term GT.list * MyTypes.type_expr
           | Union of (term pf * term) GT.list
           | Lambda of { lam_argname: MyIdent.t GT.option
                       ; lam_api    : api
@@ -218,8 +218,8 @@ class ['extra_term] my_fmt_term
             (fun fmt (l,r) -> Format.fprintf fmt "(%a,%a)" for_pf l fself_term r)
         ) _x__088_; *)
       ()
-    method c_Call fmt _ f arg _typ =
-      Format.fprintf fmt "Call@ @[(@,%a,@,@ %a@,)@]" fself_term f fself_term arg
+    method c_Call fmt _ f args _typ =
+      Format.fprintf fmt "Call@ @[(@,%a,@,@ %a@,)@]" fself_term f (GT.fmt GT.list fself_term) args
 
   end
 

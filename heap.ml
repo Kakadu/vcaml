@@ -196,9 +196,9 @@ let rec hdot_defined hs term =
                       ( simplify_pf @@ GT.gmap pf (hdot_defined hs) g
                       , hdot_defined hs t)
                     )
-  | Call (f, arg, typ) ->
+  | Call (f, args, typ) ->
       Format.eprintf "TODO: not implemented %s %d\n%!" __FILE__ __LINE__;
-      Call (hdot_defined hs f, hdot_defined hs arg, typ)
+      Call (hdot_defined hs f, List.map args ~f:(hdot_defined hs), typ)
   | Lambda _ ->
       Format.eprintf "TODO: not implemented %s %d\n%!" __FILE__ __LINE__;
       term

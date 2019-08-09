@@ -4,7 +4,7 @@
 
 (library
   (name vcore)
-  (modules vtypes heap driver)
+  (modules vutils vtypes heap driver)
   (libraries base compiler-libs.common fmt terminal_size GT)
   (flags (-strict-sequence -strict-formats -short-paths -keep-locs -open Base -w -3-9+32))
   (preprocess (pps GT.ppx ppx_import))
