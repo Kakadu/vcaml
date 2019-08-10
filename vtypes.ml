@@ -22,10 +22,10 @@ module MyIdent = struct
           end
           ; GT.fix = (fun _ -> assert false)
           }
-  module Map = struct 
-    include Ident.Map 
+  module Map = struct
+    include Ident.Map
 
-    class ['ia,'a,'sa, 'i, 'self, 'syn] t_t = object 
+    class ['ia,'a,'sa, 'i, 'self, 'syn] t_t = object
     end
     let gcata_t _ _ _ = assert false
     let t =
@@ -36,8 +36,8 @@ module MyIdent = struct
             method eq fa = phys_equal
         end
         ; GT.fix = (fun _ -> assert false)
-        } 
-  end 
+        }
+  end
 
 end
 module MyTypes = struct
@@ -73,7 +73,7 @@ type mem_repr = MemLeaf of int
 type rec_flag = Asttypes.rec_flag = Nonrecursive | Recursive [@@deriving gt ~options:{ fmt; eq }]
 
 (* **)
-type api = MyAPI of (rec_flag * term) MyIdent.Map.t 
+type api = MyAPI of (rec_flag * term) MyIdent.Map.t
 and term  = CInt  of GT.int
           | CBool of GT.bool
           | Unit
@@ -97,7 +97,7 @@ and t = HDefined of (MyIdent.t * term) GT.list
       | HMerge of (term pf * t) GT.list
       | HWrite of t * MyIdent.t * term
       | HCmps of heap * heap
-      | HCall of term * term
+      | HCall of term * term GT.list
       | HEmpty
 
 and heap = t [@@deriving gt ~options:{ fmt; eq }]
@@ -219,11 +219,11 @@ class ['extra_term] my_fmt_term
         ) _x__088_; *)
       ()
     method c_Call fmt _ f args _typ =
-      Format.fprintf fmt "Call@ @[(@,%a,@,@ %a@,)@]" fself_term f (GT.fmt GT.list fself_term) args
+      Format.fprintf fmt "Call@ @[@,%a,@,@ (%a@,)@]" fself_term f (GT.fmt GT.list fself_term) args
 
   end
 
-let hack_rec_flg fmt = function 
+let hack_rec_flg fmt = function
   | Recursive    -> Format.fprintf fmt "|rec↦"
   | Nonrecursive ->  Format.fprintf fmt "↦"
 
@@ -232,19 +232,19 @@ class ['extra_api] my_fmt_api
   =
   object
     inherit  ['extra_api] fmt_api_t_stub _mutuals_pack
-        
+
     method! c_MyAPI fmt _ mapa =
-      if Ident.Map.is_empty mapa 
+      if Ident.Map.is_empty mapa
       then Format.fprintf fmt "[]"
-      else 
-        let (khead,(flg,thead)) = Ident.Map.min_binding mapa in 
+      else
+        let (khead,(flg,thead)) = Ident.Map.min_binding mapa in
         Format.pp_open_vbox fmt 0;
-        (* Format.fprintf fmt   "@[<hov>[@ %a@ %a@ %a@]@]@," 
+        (* Format.fprintf fmt   "@[<hov>[@ %a@ %a@ %a@]@]@,"
             (GT.fmt MyIdent.t) khead
             hack_rec_flg flg
             for_term thead; *)
         mapa |> Ident.Map.iter (fun k (flg,t) ->
-            Format.fprintf fmt "@[<h>%c@ @[%a@ %a@ %a@]@]@," 
+            Format.fprintf fmt "@[<h>%c@ @[%a@ %a@ %a@]@]@,"
               (if MyIdent.equal k khead then '[' else ';')
               (GT.fmt MyIdent.t) k
               hack_rec_flg flg
@@ -276,20 +276,21 @@ class ['extra_t] my_fmt_t ((for_api, fself_t, for_term, for_heap) as _mutuals_pa
           Format.close_box ()
     method! c_HCmps fmt _ l r =
       Format.fprintf fmt "@[(%a@ ∘@ %a)@]" for_heap l for_heap r
-    method c_HCall fmt _ f arg =
-      Format.fprintf fmt "@[(RecApp@ @[(@,%a,@,@ %a@,)@])@]"
-        for_term f for_term arg
+    method c_HCall fmt _ f args =
+      Format.fprintf fmt "@[(RecApp@ @[%a@ (%a)@])@]"
+        for_term f
+        (GT.fmt GT.list for_term) args
     method c_HMerge fmt _ pfs =
       Format.fprintf fmt "@[<h>(HMerge@ ";
-      let () = match pfs with 
+      let () = match pfs with
         | [] -> Format.fprintf fmt "[]"
-        | x::xs -> 
+        | x::xs ->
           Format.fprintf fmt "@[<v>";
-          let f = GT.fmt GT.tuple2 (GT.fmt pf for_term) fself_t in 
+          let f = GT.fmt GT.tuple2 (GT.fmt pf for_term) fself_t in
           Format.fprintf fmt   "@[[ %a@]" f x;
           List.iter xs ~f:(fun p -> Format.fprintf fmt "@,@[; @,%a@]@," f p);
           Format.fprintf fmt "]@]"
-      in 
+      in
       Format.fprintf fmt ")@]"
 
     method! c_HEmpty fmt _ = Format.fprintf fmt "ε"
@@ -332,8 +333,8 @@ let _ = t
 let term =  {
     GT.gcata = gcata_term;
     GT.fix = fix_api;
-    GT.plugins = object 
-      method fmt = fmt_term 
+    GT.plugins = object
+      method fmt = fmt_term
       method eq    = term.plugins#eq
     end
   }

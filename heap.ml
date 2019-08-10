@@ -23,7 +23,7 @@ let rec type_of_term = function
 (** Simplification *)
 let eval_binop = function
   | Plus  -> (fun x y -> CInt  (x+y))
-  | Minus -> (fun x y -> CInt  (x+y))
+  | Minus -> (fun x y -> CInt  (x-y))
   | LT    -> (fun x y -> CBool (x<y))
   | LE    -> (fun x y -> CBool (x<=y))
   | GT    -> (fun x y -> CBool (x>y))
@@ -47,6 +47,10 @@ let rec simplify_pf = function
       | PFFalse -> PFTrue
       | ph      -> Not ph
     end
+  | LogicBinOp (Conj, PFFalse, _)
+  | LogicBinOp (Conj, _, PFFalse) -> PFFalse
+  | LogicBinOp (Disj, PFTrue, _)
+  | LogicBinOp (Disj, _, PFTrue) -> PFTrue
   | EQident (l,r) when Ident.equal l r -> PFTrue
   | ph -> ph
 
@@ -75,17 +79,17 @@ let union xs =
   match simplify_guards xs with
   (* | [] -> failwiths "FIXME: Introduce unreachable term for empty union." *)
   | [(PFTrue, t)] -> t
-  | [ (g1,x); (g2,y)] when (GT.eq Vtypes.term x y) 
+  | [ (g1,x); (g2,y)] when (GT.eq Vtypes.term x y)
         && (GT.eq Vtypes.pf phys_equal g1 (Not g2) || GT.eq Vtypes.pf phys_equal g2 (Not g1)  )
       -> x
-  | xs -> 
-      let reduced = 
-        List.concat_map xs ~f:(fun (g,t) -> 
-          match t with 
+  | xs ->
+      let reduced =
+        List.concat_map xs ~f:(fun (g,t) ->
+          match t with
           | Union inners -> List.map inners ~f:(fun (k,v) -> simplify_pf @@ LogicBinOp (Conj, g, k), v )
           | _ -> [ (g,t) ]
-          )    
-      in 
+          )
+      in
       Union reduced
 let union2 g1 t1 g2 t2 = union [(g1,t1); (g2,t2)]
 let binop op a b typ = simplify_term @@ BinOp (op,a,b,typ)
@@ -267,9 +271,9 @@ and hdot_generalized heap term =
   term
 and read_generalized heap ident typ = li ~heap ident typ
 and hcmps : t -> t -> t = fun l r ->
-  (* Format.printf "calling hcmps of\n%!";
+  Format.printf "calling hcmps of\n%!";
   Format.printf "\t%s\n%!" (pp_heap () l);
-  Format.printf "\t%s\n%!" (pp_heap () r); *)
+  Format.printf "\t%s\n%!" (pp_heap () r);
   match (l,r) with
   | (HEmpty, h) -> h
   | (h, HEmpty) -> h
@@ -322,18 +326,18 @@ module Api = struct
   let is_pending (_,xs) ident : bool = Base.List.exists xs ~f:(MyIdent.equal ident)
   (* let is_pending_lident (_,xs) (lident: Longident.t) : MyIdent.t option =
     assert false *)
-  
-  let is_recursive_exn (MyAPI api,pend) ident = 
-    List.mem pend ident ~equal:MyIdent.equal || 
-    match MyIdent.Map.find ident api  with 
-    | (Recursive,_) -> true 
+
+  let is_recursive_exn (MyAPI api,pend) ident =
+    List.mem pend ident ~equal:MyIdent.equal ||
+    match MyIdent.Map.find ident api  with
+    | (Recursive,_) -> true
     | (Nonrecursive,_) -> false
 
   let find_ident_exn : t -> Ident.t -> rec_flag * term = fun (MyAPI api,_toplevel) ident ->
     MyIdent.Map.find ident api
-    
-    (* List.find_map_exn api ~f:(fun (k,flg,t) -> 
-      if MyIdent.equal ident k 
+
+    (* List.find_map_exn api ~f:(fun (k,flg,t) ->
+      if MyIdent.equal ident k
       then Some (flg,t)
       else None
     ) *)

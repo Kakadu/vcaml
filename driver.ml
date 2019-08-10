@@ -43,14 +43,14 @@ and process_si (api,heap) { str_desc; _} : Heap.Api.t * Vtypes.t =
   match str_desc with
   | Tstr_value (recflg, [vb]) -> begin
     match process_vb (api, Heap.hempty) recflg vb with
-    | (Some ident, ans, heff) ->
+    | (api, Some ident, ans, heff) ->
         ( Heap.Api.add api ident (recflg, ans)
         , Heap.hcmps heap heff)
     | _ -> assert false
   end
 | Tstr_value (recflg, vbs) -> assert false
 | _ -> assert false
-and process_vb (api,heap) recflg { vb_pat; vb_expr; _ } : MyIdent.t option * Vtypes.term * Vtypes.t =
+and process_vb (api,heap) recflg { vb_pat; vb_expr; _ } : Heap.Api.t * MyIdent.t option * Vtypes.term * Vtypes.t =
   (* returns maybe identifier,
    * rhs effect,
    * effect thats is created by binding creation *)
@@ -60,11 +60,16 @@ and process_vb (api,heap) recflg { vb_pat; vb_expr; _ } : MyIdent.t option * Vty
       let api = match recflg with
         | Nonrecursive -> api
         | Recursive ->
-            (* let api = Heap.Api.add api  ident (Heap.li ident) in *)
+            (* let api = Heap.Api.add api ident (Heap.li ident) in *)
             Heap.Api.add_pending api ident
       in
-      let (_new_api,eff,ans) = process_expr (api, heap) vb_expr in
-      (Some ident, ans, eff)
+      let (api,eff,ans) = process_expr (api, Heap.hempty) vb_expr in
+      FCPM.is_caml_ref vb_expr
+        ~ok:(fun _ ->
+              (api, Some ident, ans, heap %%% eff %%% Heap.(hsingle ident ans))
+          )
+        (fun () -> (api, Some ident, ans, heap %%% eff) )
+      (* (api, Some ident, ans, heap %%% eff) *)
   | _ -> failwith "not implemented"
 
 (** Accepts
@@ -95,13 +100,13 @@ and process_expr (api,heap) e =
         (* Processing `fun argname -> c_rhs` *)
       (* let api = Heap.Api.add api param (Heap.li param) in *)
       let api, h, ans = process_expr (api,heap) c_rhs in
-      
+
       (* Format.eprintf "%s %d %a\n%!" __FILE__ __LINE__ Vtypes.t.GT.plugins#fmt h; *)
       (api, Heap.hempty, Heap.lambda false (Some argname) (fst api) h ans e.exp_type)
 
   | Texp_let (recflg, [vb], body) -> begin
       match process_vb (api,heap) recflg vb with
-      | (Some ident, rhs, heff) ->
+      | (api, Some ident, rhs, heff) ->
           (* we don't care about isolation here, so we compose heaps with toplevel one *)
           let heap = Heap.hcmps heap heff in
           let heap = Heap.hcmps heap (Heap.hsingle ident rhs) in
@@ -169,10 +174,9 @@ and process_expr (api,heap) e =
     end
 
     | Vtypes.Lambda  _ when Heap.Api.is_pending api ident || Heap.Api.is_recursive_exn api ident ->
-        (* Format.eprintf "%s %d\n%!" __FILE__ __LINE__; *)
         (* recursive functions we left as is *)
         ( api
-        , Heap.hcmps arg_eff (Heap.hcall (Heap.li ident val_type) arg_evaled)
+        , Heap.hcmps arg_eff (Heap.hcall (Heap.li ident val_type) [arg_evaled])
         , Heap.call (Heap.li ~heap ident val_type) [arg_evaled] e.exp_type)
     | Vtypes.Lambda {lam_argname; lam_eff; lam_api; lam_body} ->
         (* Format.eprintf "%s %d\n%!" __FILE__ __LINE__; *)
@@ -189,7 +193,7 @@ and process_expr (api,heap) e =
         (* let app_eff = Heap.heap_subst argeff lam_argname ans in
         (api, app_eff, Heap.call (Heap.li ~heap ident) ans) *)
     | Vtypes.LI (h, ident, typ) as func ->
-        (api, Heap.hcmps arg_eff (Heap.hcall (Heap.li ident typ) arg_evaled), Heap.call func [arg_evaled] e.exp_type)
+        (api, Heap.hcmps arg_eff (Heap.hcall (Heap.li ident typ) [arg_evaled]), Heap.call func [arg_evaled] e.exp_type)
     (* | exception Not_found -> failwith (Printf.sprintf "Identifier unbound: '%a'" Vtypes.MyIdent.pp_string ident) *)
     | ans_term ->
         failwith (sprintf "typecheck error? should not happed. Searched for ident %a. Got '%a'"
@@ -202,7 +206,8 @@ and process_expr (api,heap) e =
         | (Asttypes.Nolabel, Some arg) -> arg
         | _ -> failwiths "labeled arguments not supported (%s %d)\n%!" __FILE__ __LINE__
       )
-      in 
+      in
+      Format.printf "Got multiple (%d) arguments\n%!" (List.length args);
       match find_lident api heap ident val_type with
       | exception IdentNotFound (_,_) -> begin
         (* It could be a recursive call *)
@@ -211,41 +216,79 @@ and process_expr (api,heap) e =
         else failwiths "(should not happen) not implemented %s %d" __FILE__ __LINE__
       end
       | Vtypes.Lambda { lam_eff; lam_body; lam_argname } when Heap.Api.is_pending api ident || Heap.Api.is_recursive_exn api ident ->
+        (* for recursive calls we do nothing interesting *)
+        (* we evaluate from right to left (native code) and left call in the result *)
+        let api, eff, evaled_args =
+          List.fold_right args ~init:(api,heap,[])
+            ~f:(fun arg (api,acch,rezs) ->
+                  let api,arg_eff,arg_evaled = process_expr (api, Heap.hempty) arg in
+                  (api, acch %%% arg_eff, arg_evaled :: rezs)
+            )
+        in
+
+        ( api
+        , Heap.hcmps eff (Heap.hcall (Heap.li ident val_type) evaled_args)
+        , Heap.call (Heap.li ~heap ident val_type) evaled_args e.exp_type)
+      | Vtypes.Lambda { lam_eff; lam_body; lam_argname } ->
+          Format.printf "%s %d\n%!" __FILE__ __LINE__;
+          let api, eff, evaled_args =
+            List.fold_right args ~init:(api,heap,[])
+              ~f:(fun arg (api,acch,rezs) ->
+                    let api,arg_eff,arg_evaled = process_expr (api, Heap.hempty) arg in
+                    (api, acch %%% arg_eff, arg_evaled :: rezs)
+              )
+          in
+
+          (* TODO: rewrite this by evaluating all arguments *)
           let fuck = List.foldk args
             ~init:(api, Heap.hempty, Heap.hempty, Heap.li ~heap ident val_type, lam_eff, lam_body)
             ~finish:(fun acc -> (acc,[]))
-            ~f:(fun ((api, eff, arg_bindings, func, lam_eff, lam_body) as theacc) hexpr tl k -> 
+            ~f:(fun ((api, eff, arg_bindings, func, lam_eff, lam_body) as theacc) hexpr tl k ->
                   (* We accumulate on the go  1) an effect 2) term 3) the non-applied arguments *)
-                  match lam_body with 
+                  match lam_body with
                   | Vtypes.Lambda { lam_eff=next_eff; lam_body=next_body; lam_argname=(Some nextargname) } ->
                     (* Need to evaluate argument first *)
                     let api,arg_eff,arg_evaled = process_expr (api, Heap.hempty) hexpr in
-                    let xxx1 = Heap.hsingle nextargname arg_evaled in 
+                    let xxx1 = Heap.hsingle nextargname arg_evaled in
                     let next_bindings = arg_bindings %%% xxx1 in
                     (* acumulated evaluation effect is prefvious effect + substitution of arguments + eff of applying next argument *)
                     let accum_eff = eff %%% arg_eff %%% (xxx1 %%% next_eff) in
 
-                    let next_term = Heap.hdot next_bindings next_body in 
+                    let next_term = Heap.hdot next_bindings next_body in
                     k (api, accum_eff, next_bindings, next_term,next_eff,next_body)
                     (* (theacc,tl) *)
                   | Vtypes.Lambda { lam_argname= None; _} ->
-                      failwiths "not implemented on %s %d" __FILE__ __LINE__ 
+                      failwiths "not implemented on %s %d" __FILE__ __LINE__
                   | _ ->
                       (* if next is not a lambda, then we should stop (or not?) *)
                       (theacc,tl)
                       (* (eff, func, lam_eff, lam_body) *)
-                )            
+                )
           in
-          (match fuck with 
+          (match fuck with
           | ((api,acced_eff,_,term_rez,_,_),[]) ->
               (* recursive functions we left as is *)
               ( api
               , heap %%% acced_eff
               , term_rez)
-          | _ -> failwiths "not implemented on %s %d" __FILE__ __LINE__ 
+          | (_,xs) ->
+              Format.printf "Got non-apllied arguments: \n%!";
+              List.iter xs ~f:(fun e -> Format.printf "\t%s\n%!" (UntypeP.expr e) );
+              failwiths "not implemented on %s %d" __FILE__ __LINE__
           )
+      | Vtypes.LI (h, ident, typ) as func ->
+          let api, arg_eff, evaled_args =
+              List.fold_right args ~init:(api,heap,[])
+                ~f:(fun arg (api,acch,rezs) ->
+                      let api,arg_eff,arg_evaled = process_expr (api, Heap.hempty) arg in
+                      (api, acch %%% arg_eff, arg_evaled :: rezs)
+                )
+            in
+        ( api
+        , arg_eff %%% (Heap.hcall (Heap.li ident typ) evaled_args)
+        , Heap.call func evaled_args e.exp_type)
       | _ -> assert false
-  
+
   end
   | Texp_sequence (a,b) ->
     let api,effa,___ = process_expr (api,Heap.hempty) a in
@@ -266,7 +309,7 @@ and process_expr (api,heap) e =
     | [{c_lhs={pat_desc=Tpat_construct ({txt=Lident "()"},_,[])}; c_rhs}] ->
         let api, eff, _scrut = process_expr (api,Heap.hempty) what in
         (* Format.printf "eff = %a\n%!" (GT.fmt Vtypes.heap) eff; *)
-        let api, nexteff, ans = process_expr (api,Heap.hempty) c_rhs in 
+        let api, nexteff, ans = process_expr (api,Heap.hempty) c_rhs in
         (api, heap %%% eff %%% nexteff, ans)
     | _ -> assert false
   end
@@ -280,11 +323,13 @@ let work { Misc.sourcefile = filename } (t: Typedtree.structure) =
     Format.pp_set_margin Format.std_formatter (sz-1);
     Format.pp_set_max_indent Format.std_formatter 2000 (* (sz-1) *)
   in
-  (* Format.printf "Processing implementation file '%s'\n%!" filename;
+  Format.printf "Processing implementation file '%s'\n%!" filename;
   Printtyped.implementation Format.std_formatter t;
-  Format.printf "\n\n%!"; *)
+  Format.printf "\n\n%!";
 
   let api,h = process_str Heap.Api.empty t in
+  Format.printf "**** Final Heap\n%!";
   Format.printf "%a\n\n%!" Vtypes.fmt_heap h;
+  Format.printf "**** Final API\n%!";
   Format.printf "%a\n\n%!" Vtypes.fmt_api (fst api);
   ()
