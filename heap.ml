@@ -64,9 +64,12 @@ let simplify_guards gs =
   )
 
 (** Term operations *)
-let call fexpr arg typ =
+let call fexpr args typ =
   (* Format.eprintf "constructing call of '%s' to '%s'\n" (pp_term () fexpr)  (pp_term () arg); *)
-  simplify_term @@ Call (fexpr, arg, typ)
+  match args with
+  | [] -> fexpr
+  | args ->  simplify_term @@ Call (fexpr, args, typ)
+
 let cint n = CInt n
 let cbool b = CBool b
 let cunit = Unit
@@ -271,9 +274,9 @@ and hdot_generalized heap term =
   term
 and read_generalized heap ident typ = li ~heap ident typ
 and hcmps : t -> t -> t = fun l r ->
-  Format.printf "calling hcmps of\n%!";
-  Format.printf "\t%s\n%!" (pp_heap () l);
-  Format.printf "\t%s\n%!" (pp_heap () r);
+  (* Format.printf "calling hcmps of\n%!";
+   * Format.printf "\t%s\n%!" (pp_heap () l);
+   * Format.printf "\t%s\n%!" (pp_heap () r); *)
   match (l,r) with
   | (HEmpty, h) -> h
   | (h, HEmpty) -> h

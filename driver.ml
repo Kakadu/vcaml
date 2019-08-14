@@ -207,7 +207,7 @@ and process_expr (api,heap) e =
         | _ -> failwiths "labeled arguments not supported (%s %d)\n%!" __FILE__ __LINE__
       )
       in
-      Format.printf "Got multiple (%d) arguments\n%!" (List.length args);
+      (* Format.printf "Got multiple (%d) arguments\n%!" (List.length args); *)
       match find_lident api heap ident val_type with
       | exception IdentNotFound (_,_) -> begin
         (* It could be a recursive call *)
@@ -215,7 +215,8 @@ and process_expr (api,heap) e =
         then (api, heap, Heap.li ident val_type)
         else failwiths "(should not happen) not implemented %s %d" __FILE__ __LINE__
       end
-      | Vtypes.Lambda { lam_eff; lam_body; lam_argname } when Heap.Api.is_pending api ident || Heap.Api.is_recursive_exn api ident ->
+      | Vtypes.Lambda { lam_eff; lam_body; lam_argname }
+                      when Heap.Api.is_pending api ident || Heap.Api.is_recursive_exn api ident ->
         (* for recursive calls we do nothing interesting *)
         (* we evaluate from right to left (native code) and left call in the result *)
         let api, eff, evaled_args =
@@ -231,7 +232,7 @@ and process_expr (api,heap) e =
         , Heap.call (Heap.li ~heap ident val_type) evaled_args e.exp_type)
       | Vtypes.Lambda { lam_eff; lam_body; lam_argname } ->
           Format.printf "%s %d\n%!" __FILE__ __LINE__;
-          let api, eff, evaled_args =
+          let api, all_args_eff, evaled_args =
             List.fold_right args ~init:(api,heap,[])
               ~f:(fun arg (api,acch,rezs) ->
                     let api,arg_eff,arg_evaled = process_expr (api, Heap.hempty) arg in
@@ -240,23 +241,31 @@ and process_expr (api,heap) e =
           in
 
           (* TODO: rewrite this by evaluating all arguments *)
-          let fuck = List.foldk args
-            ~init:(api, Heap.hempty, Heap.hempty, Heap.li ~heap ident val_type, lam_eff, lam_body)
+          let fuck = List.foldk evaled_args
+            ~init:(api, Heap.hempty, Heap.hempty, Heap.li ~heap ident val_type, lam_eff, lam_body, val_type)
             ~finish:(fun acc -> (acc,[]))
-            ~f:(fun ((api, eff, arg_bindings, func, lam_eff, lam_body) as theacc) hexpr tl k ->
+            ~f:(fun ((api, eff, arg_bindings, func, lam_eff, lam_body, typ) as theacc) hterm tl k ->
                   (* We accumulate on the go  1) an effect 2) term 3) the non-applied arguments *)
                   match lam_body with
                   | Vtypes.Lambda { lam_eff=next_eff; lam_body=next_body; lam_argname=(Some nextargname) } ->
-                    (* Need to evaluate argument first *)
-                    let api,arg_eff,arg_evaled = process_expr (api, Heap.hempty) hexpr in
-                    let xxx1 = Heap.hsingle nextargname arg_evaled in
+                    let xxx1 = Heap.hsingle nextargname hterm in
                     let next_bindings = arg_bindings %%% xxx1 in
-                    (* acumulated evaluation effect is prefvious effect + substitution of arguments + eff of applying next argument *)
-                    let accum_eff = eff %%% arg_eff %%% (xxx1 %%% next_eff) in
-
+                    (* acumulated evaluation effect is previous effect + substitution of arguments
+                       + eff of applying next argument *)
+                    let accum_eff = eff %%% (xxx1 %%% next_eff) in
                     let next_term = Heap.hdot next_bindings next_body in
-                    k (api, accum_eff, next_bindings, next_term,next_eff,next_body)
-                    (* (theacc,tl) *)
+                    let next_typ =
+                      let rec helper t = 
+                        match t.Types.desc with
+                        | Tarrow (_,l,r,_) -> r
+                        | Tlink next -> helper next (* unification indirection *)
+                        | _ ->
+                          failwiths "%s %d unwinding type abbreviations is not implemented: `%s`" __FILE__ __LINE__
+                            (Format.asprintf "%a" Printtyp.type_expr typ)
+                      in
+                      helper typ
+                    in
+                    k (api, accum_eff, next_bindings, next_term, next_eff,next_body, next_typ)
                   | Vtypes.Lambda { lam_argname= None; _} ->
                       failwiths "not implemented on %s %d" __FILE__ __LINE__
                   | _ ->
@@ -266,15 +275,15 @@ and process_expr (api,heap) e =
                 )
           in
           (match fuck with
-          | ((api,acced_eff,_,term_rez,_,_),[]) ->
+          | ((api,acced_eff,_,term_rez,_,_, typ), xs) ->
               (* recursive functions we left as is *)
               ( api
-              , heap %%% acced_eff
-              , term_rez)
-          | (_,xs) ->
-              Format.printf "Got non-apllied arguments: \n%!";
-              List.iter xs ~f:(fun e -> Format.printf "\t%s\n%!" (UntypeP.expr e) );
-              failwiths "not implemented on %s %d" __FILE__ __LINE__
+              , heap %%% all_args_eff %%% acced_eff
+              , Heap.call term_rez xs typ)
+          (* | (_,xs) ->
+           *     Format.printf "Got non-apllied arguments: \n%!";
+           *     List.iter xs ~f:(fun e -> Format.printf "\t%s\n%!" (UntypeP.expr e) );
+           *     failwiths "not implemented on %s %d" __FILE__ __LINE__ *)
           )
       | Vtypes.LI (h, ident, typ) as func ->
           let api, arg_eff, evaled_args =
