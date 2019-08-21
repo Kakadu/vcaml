@@ -9,6 +9,6 @@ env:
   matrix:
   - OCAML_VERSION=4.07
     PACKAGE=vcaml
-    PINS="GT:https://github.com/Kakadu/gt"
+    PINS="GT:https://github.com/Kakadu/GT.git"
     TESTS=false
 
