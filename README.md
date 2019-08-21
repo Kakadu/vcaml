@@ -1,4 +1,4 @@
-
+Recommended installation method is using OPAM ((https://launchpad.net/~avsm/+archive/ubuntu/ppa-opam-experimental)[Ubuntu PPA])
 
 
 
