@@ -1,0 +1,58 @@
+\documentclass{article}
+\usepackage[cache=true]{minted}
+\usepackage{polyglossia}
+
+
+\usepackage[margin=1cm]{geometry}
+\usepackage{amssymb,amsmath,amsthm,amsfonts} 
+
+\usepackage{fontspec}
+% \DeclareMathSizes{22}{30}{24}{20}
+
+% Times New Roman 
+\setromanfont[
+    BoldFont=timesbd.ttf,
+    ItalicFont=timesi.ttf,
+    BoldItalicFont=timesbi.ttf,
+    Scale=2
+]{times.ttf}
+% Arial
+\setsansfont[
+    BoldFont=arialbd.ttf,
+    ItalicFont=ariali.ttf,
+    BoldItalicFont=arialbi.ttf,
+    Scale=2
+]{arial.ttf} 
+% Courier New
+\setmonofont[Scale=0.90,
+    BoldFont=courbd.ttf,
+    ItalicFont=couri.ttf,
+    BoldItalicFont=courbi.ttf,
+    Scale=2
+%     Color={0019D4}
+]{cour.ttf}
+\usepackage{unicode-math}
+\setmathfont{Latin Modern Math}[Scale=MatchLowercase]
+
+
+\begin{document}
+
+\begin{minted}[mathescape, escapeinside=??]{python} 
+def(?\textcolor{red}{RR}?):
+     print("Hello TeX.sx!")
+\end{minted}
+asdfasdfsa
+
+\begin{minted}[mathescape, escapeinside=??]{ocaml }  
+let encode term ?$\sigma$? = ....
+
+let find heap x ?$\sigma$? =
+  match heap with 
+  | Defined hs  ?$\rightarrow$? find_defined hs x ?$\sigma$? 
+  | Merge [<?$g_i$?, ?$h_i$?>; ...] ?$\rightarrow$? 
+     UNION [ <encode ?$g_i$? ?$\sigma$?, find ?$h_i$? x ?$\sigma$?>; ...]
+  | RecApp f    ?$\rightarrow$? find (effect_of f) x ?$\sigma$?
+  | h1 ?$\circ$? h2 ?$\rightarrow$? find h2 x (fun x -> find h1 x ?$\sigma$?)
+\end{minted}
+
+\end{document}
