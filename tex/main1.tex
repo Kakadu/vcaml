@@ -37,24 +37,26 @@
 ]{cour.ttf}
 \usepackage{unicode-math}
 \setmathfont{Latin Modern Math}[Scale=MatchLowercase]
-
+\newcommand*{\arr}{\ensuremath{\rightarrow}}
 
 \begin{document}
 
 \begin{minted}[mathescape, escapeinside=??]{ocaml }  
+val encode: term -> heap -> term  (* ??? *)
+
 let encode term ?$\sigma$? = 
   gmap term (object 
-                method LI h x -> find h x ?$\sigma$? 
-                method Call f -> encode (result_of f) ?$\sigma$? 
+                method LI h x ?$\arr$? find h x ?$\sigma$? 
+                method Call f ?$\arr$? encode (result_of f) ?$\sigma$? 
             end)
 
 let find heap x ?$\sigma$? =
   match heap with 
-  | Defined hs  ?$\rightarrow$? find_defined hs x ?$\sigma$? 
-  | Merge [<?$g_i$?, ?$h_i$?>; ...] ?$\rightarrow$? 
+  | Defined hs  ?$\arr$? find_defined hs x ?$\sigma$? 
+  | Merge [<?$g_i$?, ?$h_i$?>; ...] ?$\arr$? 
      UNION [ <encode ?$g_i$? ?$\sigma$?, find ?$h_i$? x ?$\sigma$?>; ...]
-  | RecApp f    ?$\rightarrow$? find (effect_of f) x ?$\sigma$?
-  | h1 ?$\circ$? h2 ?$\rightarrow$? find h2 x (fun x -> find h1 x ?$\sigma$?)
+  | RecApp f  ?$\arr$? find (effect_of f) x ?$\sigma$?
+  | h1 ?$\circ$? h2   ?$\arr$? find h2 x (fun x -> find h1 x ?$\sigma$?)
 \end{minted}
 
 \section{Примеры}
@@ -98,16 +100,14 @@ result_of(?$fib_{1002}$?) =
 Сейчас хотим специализировать \mintinline{latex}{find} для \mintinline{latex}{fib1}, избавляясь по дороге от композиций куч и LI.
 
 \begin{minted}[mathescape, escapeinside=??]{ocaml}
-val encode: term -> heap -> term  (* ??? *)
+encode ((Call (Ident ?$fib_{1002}$?) ?$\{n_{1003}\ \mapsto n\}$?))), ?$\sigma$?)
+encode ( (result_of ?$fib_{1002}$?) ?$\{n_{1003}\ \mapsto n\}$?})) ), ?$\sigma$?)
 
-encode ((Call (Ident "fib1_1002", ?$n$?))), ?$\sigma$?)
-encode ( (result_of "fib1_1002") {"n_1003"?$\mapsto n$?})) ), ?$\sigma$?)
-
-let encoded_fib { n_1003 ?$\mapsto$? n_1003} = 
-    if n_1003 ?$\leqslant$? 2 then 1
+let encoded_fib ?$\{ n_{1003}\ \mapsto\ n_{1003}\}$? = 
+    if ?$n_{1003} \leqslant 2$? then ?$1$?
     else 
-        encoded_fib ?$\{ n_{1003} \mapsto (n_{1003} - 1)\}$? +  
-        encoded_fib ?$\{ n_{1003} \mapsto (n_{1003} - 2)\}$?
+        encoded_fib ?$\{ n_{1003}\ \mapsto\ (n_{1003} - 1)\}$? +  
+        encoded_fib ?$\{ n_{1003}\ \mapsto\ (n_{1003} - 2)\}$?
 \end{minted}
 
 
@@ -125,6 +125,7 @@ let encoded_fib { n_1003 ?$\mapsto$? n_1003} =
 \begin{minted}{ocaml}  
 let a = ref 0
 let b = ref 0
+
 let rec loop n = 
   if n <= 1
   then ()
@@ -140,39 +141,47 @@ let fib ndx =
   loop ndx;
   !b
 \end{minted}
-После символьного исполнения
+% Может для полноты ещё написать для a и b
+После символьного исполнения $loop_{1635}$ и упрощения $a \neq b \wedge c \neq a \wedge c \neq b$
 \begin{minted}[mathescape, escapeinside=??]{ocaml}
 effect_of(?$loop_{1635}$?) = HMerge 
   [ (?$n_{1636} \leqslant 1$?, ?$\varepsilon$?)
   ; (?$n_{1636} > 1$?,
-      [ (?$b_{1634} \mapsto$? Union
-          [ ( ?$c_{1637} \neq b_{1634} \wedge a_{1002} \neq b_{1634} \wedge c_{1637} = a_{1002} \wedge c_{1637} \neq b_{1634} $?
-            , ?$ b_{1634}$?)
-          ; ( ?$c_{1637} \neq b_{1634} \wedge a_{1002} \neq b_{1634} \wedge c_{1637} = a_{1002} \wedge c_{1637} = b_{1634} $?
-            , ?$a_{1002} + b_{1634}$?)
-          ; ( ?$c_{1637} \neq b_{1634} \wedge a_{1002} \neq b_{1634} \wedge c_{1637} \neq a_{1002}$?
-            , ?$(a_{1002} + b_{1634})$?)
-          ]
-          )
-      ; (?$c_{1637} \mapsto$? Union
-          [ (?$c_{1637} = a_{1002} \wedge c_{1637} \neq b_{1634}$?, ?$b_{1634}$?)
-          ; (?$c_{1637} = a_{1002} \wedge c_{1637}    = b_{1634}$?, ?$a_{1002} + b_{1634}$?)
-          ; (?$c_{1637} \neq a_{1002}                           $?, ?$a_{1002} + b_{1634}$?)
-          ])
-      ; (?$a_{1002} \mapsto$? Union
-          [ (?$a_{1002} = b_{1634}    \wedge c_{1637} = a_{1002}   \wedge c_{1637} \neq b_{1634}$?,  ?$b_{1634}$?)
-          ; (?$a_{1002} = b_{1634}    \wedge c_{1637} = a_{1002}   \wedge c_{1637}    = b_{1634}$?,  ?$a_{1002} + b_{1634}$?)
-          ; (?$a_{1002} = b_{1634}    \wedge c_{1637} \neq a_{1002}                             $?,  ?$a_{1002} + b_{1634}$?)
-          ; (?$a_{1002} \neq b_{1634} \wedge c_{1637} \neq a_{1002} \wedge c_{1637} \neq b_{1634}$?, ?$b_{1634}$?)
-          ; (?$a_{1002} \neq b_{1634} \wedge c_{1637} \neq a_{1002} \wedge c_{1637}    = b_{1634}$?, ?$a_{1002} + b_{1634}$?)
-          ])
+      [ (?$b_{1634} \mapsto (a_{1002} + b_{1634})$?)
+      ; (?$c_{1637} \mapsto (a_{1002} + b_{1634})$?)
+      ; (?$a_{1002} \mapsto b_{1634}$?)          
       ] ?$\circ$? (RecApp ?$loop_{1635}$? ?$\{n_{1636} \mapsto n_{1636} - 1\}$?)
     )
   ]
 result_of(?$loop_{1635}$?) = Union 
   [ ( ?$n_{1636} \leqslant$? 1, Unit)     
   ; ( ?$n_{1636} >$? 1,
-      Call (Ident ?$loop_{1635}$?, ?$\{n_{1003} \mapsto (n_{1003} - 1)\}$?) )
+      Call (Ident ?$loop_{1635}$?) ?$\{n_{1003} \mapsto (n_{1003} - 1)\}$?) )
   ]
+\end{minted}
+После символьного исполнения $fib_{1638}$
+\begin{minted}[mathescape, escapeinside=??]{ocaml}
+effect_of(?$fib_{1638}$?) = 
+  ?$\{ b_{1634} \mapsto 1;\quad a_{1002} \mapsto 1\} \ \circ$? (RecApp (Ident ?$ loop_{1635}) \ \{ n_{1636} \mapsto ndx_{1639} \}$?)
+result_of(?$fib_{1638}$?) = ?$b_{1634}$? 
+\end{minted}
+
+Теперь свойство, от которого будем доказывать: 
+\begin{minted}[mathescape, escapeinside=??]{ocaml}
+?$\forall n . (n \geqslant 1) \Rightarrow$? (Call (Ident ?$fib_{1638}$?) ?$\{n_{1003} \mapsto ndx_{1639}\}$?) ?$\geqslant n$?
+\end{minted}
+
+\begin{minted}[mathescape, escapeinside=??]{ocaml}
+
+
+encode (Call (Ident ?$fib_{1638}$?)) ?$\{n_{1003}\ \mapsto n\}$? = 
+encode (   result_of ?$fib_{1638}$?) ?$\{n_{1003}\ \mapsto n\}$?
+
+
+let encoded_fib ?$\{ n_{1003}\ \mapsto\ n_{1003}\}$? = 
+    if ?$n_{1003} \leqslant 2$? then ?$1$?
+    else 
+        encoded_fib ?$\{ n_{1003}\ \mapsto\ (n_{1003} - 1)\}$? +  
+        encoded_fib ?$\{ n_{1003}\ \mapsto\ (n_{1003} - 2)\}$?
 \end{minted}
 \end{document}
