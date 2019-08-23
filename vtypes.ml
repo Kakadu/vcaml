@@ -100,7 +100,7 @@ and t = HDefined of (MyIdent.t * term) GT.list
       | HCall of term * term GT.list
       | HEmpty
 
-and heap = t [@@deriving gt ~options:{ fmt; eq }]
+and heap = t [@@deriving gt ~options:{ fmt; eq; gmap }]
 
 type defined_heap = (MyIdent.t * term) list
 
@@ -335,7 +335,8 @@ let term =  {
     GT.fix = fix_api;
     GT.plugins = object
       method fmt = fmt_term
-      method eq    = term.plugins#eq
+      method eq  = term.plugins#eq
+      method gmap  = term.plugins#gmap
     end
   }
 let _ = term

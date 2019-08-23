@@ -271,7 +271,12 @@ and hcmps_defined ms ns : defined_heap =
     write_ident_defined acc k v
   )
 and hdot_generalized heap term =
-  term
+
+  (GT.transform Vtypes.term)
+    (fun fself -> object
+    end)
+    ()
+    term
 and read_generalized heap ident typ = li ~heap ident typ
 and hcmps : t -> t -> t = fun l r ->
   (* Format.printf "calling hcmps of\n%!";

@@ -255,7 +255,7 @@ and process_expr (api,heap) e =
                     let accum_eff = eff %%% (xxx1 %%% next_eff) in
                     let next_term = Heap.hdot next_bindings next_body in
                     let next_typ =
-                      let rec helper t = 
+                      let rec helper t =
                         match t.Types.desc with
                         | Tarrow (_,l,r,_) -> r
                         | Tlink next -> helper next (* unification indirection *)
@@ -302,7 +302,7 @@ and process_expr (api,heap) e =
   | Texp_sequence (a,b) ->
     let api,effa,___ = process_expr (api,Heap.hempty) a in
     let api,effb,ans = process_expr (api,Heap.hempty) b in
-    (api, heap %%% effa %%% effb, ans)
+    (api, heap %%% effa %%% effb, Heap.hdot_generalized effa ans)
   | Texp_ifthenelse (econd, ethen, Some eelse) ->
     let (api,h1, e) = process_expr (api,heap) econd in
     let h_after_cond = h1 in
