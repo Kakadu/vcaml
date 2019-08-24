@@ -13,7 +13,8 @@ let rec type_of_term = function
   | CInt _  -> Some Predef.type_int
   | CBool _ -> Some Predef.type_bool
   | Unit -> Some Predef.type_unit
-  | LI(_,_,t)
+  | LI (_,_,t)
+  | Ident (_,t)
   | BinOp (_,_,_,t)
   | Lambda {lam_typ = t}
   | Call (_,_,t) -> Some t
@@ -76,6 +77,8 @@ let cunit = Unit
 let lambda lam_is_rec lam_argname lam_api lam_eff lam_body lam_typ =
   simplify_term @@ Lambda { lam_argname; lam_api; lam_eff; lam_body; lam_is_rec; lam_typ }
 let li ?heap longident typ = LI (heap, longident, typ)
+let ident longident typ = Ident (longident, typ)
+
 let union xs =
   (* Printexc.print_raw_backtrace stdout (Printexc.get_callstack 2); *)
   (* TODO: optimize Union [ ⦗("n_1635" < 0), x⦘; ⦗¬("n_1635" < 0), x⦘] *)
@@ -118,7 +121,7 @@ let pf_conj_list = function
   | h::hs -> List.fold_left ~init:h hs ~f:(pf_binop Conj)
 
 (** Heap construction *)
-let hempty : t = HEmpty
+let hempty : heap = HDefined []
 let hdefined xs = HDefined xs
 let hsingle name el : t = hdefined [(name,el)]
 let hmerge2 g1 h1 g2 h2 = HMerge [(g1,h1); (g2,h2)]
@@ -195,6 +198,9 @@ let rec hdot_defined hs term =
   | LI (None, ident, typ) -> read_ident_defined hs ident typ
   | LI (Some hs2, ident, typ) ->
       read_generalized (hcmps (hdefined hs) hs2) ident typ
+  | Ident (_, _) ->
+    (* Terms that are concrente adn a priori known should not be affected my heap mutation *)
+    term
   | BinOp (op, l, r, typ) -> BinOp (op, hdot_defined hs l, hdot_defined hs r, typ)
   | Unit
   | CBool _
@@ -271,20 +277,28 @@ and hcmps_defined ms ns : defined_heap =
     write_ident_defined acc k v
   )
 and hdot_generalized heap term =
-
-  (GT.transform Vtypes.term)
+  match heap with
+  | HDefined hs -> hdot_defined hs term
+  | _ -> GT.transform Vtypes.term
     (fun fself -> object
+      inherit [_,_] gmap_term_t fself
+      method! c_LI () _ h ident typ =
+        LI ( Option.some @@ hcmps heap (Option.value h ~default:hempty), ident, typ)
     end)
     ()
     term
-and read_generalized heap ident typ = li ~heap ident typ
+and read_generalized heap ident typ =
+  match heap with
+  | HDefined hs -> read_ident_defined hs ident typ
+  | _ -> li ~heap ident typ
+
 and hcmps : t -> t -> t = fun l r ->
   (* Format.printf "calling hcmps of\n%!";
    * Format.printf "\t%s\n%!" (pp_heap () l);
    * Format.printf "\t%s\n%!" (pp_heap () r); *)
   match (l,r) with
-  | (HEmpty, h) -> h
-  | (h, HEmpty) -> h
+  | (HDefined [], h) -> h
+  | (h, HDefined []) -> h
   | (HDefined xs, HDefined ys) ->
       let ans  = HDefined (hcmps_defined xs ys) in
       (* Format.printf "\t\t\t\t%a\n%!" (GT.fmt heap) ans; *)
@@ -308,8 +322,8 @@ and hcmps : t -> t -> t = fun l r ->
 
 let hdot heap term =
   match heap with
+  | HDefined [] -> term
   | HDefined hs -> hdot_defined hs term
-  | HEmpty      -> term
   | _ -> failwiths "not implemented %s %d" __FILE__ __LINE__
 
 (* let rec heap_subst heap lident new_term =

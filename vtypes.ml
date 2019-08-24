@@ -17,11 +17,12 @@ module MyIdent = struct
   let t = { GT.gcata = (fun _ _ _ -> assert false)
           ; GT.plugins = object
               method fmt fmt o = Format.fprintf fmt "%s" (Ident.unique_name o)
-              method gmap x = x
+              method gmap (x: t) = x
               method eq = equal
           end
           ; GT.fix = (fun _ -> assert false)
           }
+
   module Map = struct
     include Ident.Map
 
@@ -32,7 +33,7 @@ module MyIdent = struct
         { GT.gcata = gcata_t
         ; GT.plugins = object
             method fmt fa fmt o = Format.fprintf fmt "<indent_map>"
-            method gmap x = x
+            method gmap = Ident.Map.map
             method eq fa = phys_equal
         end
         ; GT.fix = (fun _ -> assert false)
@@ -70,37 +71,51 @@ type 'term pf = LogicBinOp of logic_op * 'term pf * 'term pf
 type mem_repr = MemLeaf of int
               | MemBlock of {mem_tag: int; mem_sz: int; mem_cnt: mem_repr list }
 
-type rec_flag = Asttypes.rec_flag = Nonrecursive | Recursive [@@deriving gt ~options:{ fmt; eq }]
+type rec_flag = Asttypes.rec_flag = Nonrecursive | Recursive [@@deriving gt ~options:{ fmt; gmap; eq }]
 
 (* **)
 type api = MyAPI of (rec_flag * term) MyIdent.Map.t
-and term  = CInt  of GT.int
-          | CBool of GT.bool
-          | Unit
-          (* int,bool and unit doesn't need types because we have them in Predef module *)
-          | LI of heap GT.option * MyIdent.t * MyTypes.type_expr
-          | BinOp of op * term * term * MyTypes.type_expr
-          | Call of term * term GT.list * MyTypes.type_expr
-          | Union of (term pf * term) GT.list
-          | Lambda of { lam_argname: MyIdent.t GT.option
-                      ; lam_api    : api
-                      ; lam_eff    : heap
-                      ; lam_body   : term
-                      ; lam_is_rec : GT.bool
-                      ; lam_typ    : MyTypes.type_expr
-                      }
-(* TODO: it should be path here *)
-and t = HDefined of (MyIdent.t * term) GT.list
-        (* Heap should be a mapping from terms to terms (array access, for example)
-         * but for fibonacci it doesn't matter
-         *)
-      | HMerge of (term pf * t) GT.list
-      | HWrite of t * MyIdent.t * term
-      | HCmps of heap * heap
-      | HCall of term * term GT.list
-      | HEmpty
+and term  =
+  (* int,bool and unit doesn't need types because we have them in Predef module *)
+  | CInt  of GT.int
+  | CBool of GT.bool
+  | Unit
+  (* TODO: Lazy Instantiation contains a context heap, identifier and type of that identifier
+    In case of reading from defined heap (when we know all concrete heaps) the None will be stored
+    and it will be most common case. In more complex situation (Composition or Mutation of heap)
+    Some-thing will be stored there.
+   *)
+  | LI of heap GT.option * MyIdent.t * MyTypes.type_expr
+  | Ident of MyIdent.t  * MyTypes.type_expr
+  | BinOp of op * term * term * MyTypes.type_expr
+  | Call of term * term GT.list * MyTypes.type_expr
+  | Union of (term pf * term) GT.list
+  | Lambda of { lam_argname: MyIdent.t GT.option
+              ; lam_api    : api
+              ; lam_eff    : heap
+              ; lam_body   : term
+              ; lam_is_rec : GT.bool
+              ; lam_typ    : MyTypes.type_expr
+              }
 
-and heap = t [@@deriving gt ~options:{ fmt; eq; gmap }]
+and t =
+  (** Heap should be a mapping from terms to terms (array access, for example)
+    * but for fibonacci it doesn't matter
+    *)
+  (* TODO: it should be path instead of ident here *)
+  | HDefined of (MyIdent.t * term) GT.list
+  | HMerge of (term pf * t) GT.list
+  | HWrite of t * MyIdent.t * term
+  | HCmps of heap * heap
+  | HCall of term * term GT.list
+  (* Mutation: when we fill the holes in right heap by terms from left heap *)
+  (* | HMutation of t * t  *)
+
+
+and heap = t
+[@@deriving gt ~options:{ fmt; eq; gmap }]
+
+(* **)
 
 type defined_heap = (MyIdent.t * term) list
 
@@ -197,6 +212,8 @@ class ['extra_term] my_fmt_term
         fmt_op op
         fself_term r
     method! c_CInt fmt _ n = Format.fprintf fmt "%d" n
+    method! c_Ident fmt _ ident _typ =
+      Format.fprintf fmt "@[\"%a\"@]" (GT.fmt MyIdent.t) ident
     method! c_LI fmt _ h ident _typ =
       match h with
       | None -> Format.fprintf fmt "@[\"%a\"@]" (GT.fmt MyIdent.t) ident
@@ -263,7 +280,7 @@ class ['extra_t] my_fmt_t ((for_api, fself_t, for_term, for_heap) as _mutuals_pa
 
     method! c_HDefined fmt _ xs =
       match xs with
-      | [] -> Format.fprintf fmt "⟦⟧"
+      | [] -> Format.fprintf fmt "ε"
       | (hi,ht)::xs ->
           Format.open_hovbox 0;
           (* Format.fprintf fmt   "\x1b[31m"; *)
@@ -292,8 +309,6 @@ class ['extra_t] my_fmt_t ((for_api, fself_t, for_term, for_heap) as _mutuals_pa
           Format.fprintf fmt "]@]"
       in
       Format.fprintf fmt ")@]"
-
-    method! c_HEmpty fmt _ = Format.fprintf fmt "ε"
   end
 
 let fmt_term_0 = new my_fmt_term

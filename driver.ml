@@ -66,7 +66,7 @@ and process_vb (api,heap) recflg { vb_pat; vb_expr; _ } : Heap.Api.t * MyIdent.t
       let (api,eff,ans) = process_expr (api, Heap.hempty) vb_expr in
       FCPM.is_caml_ref vb_expr
         ~ok:(fun _ ->
-              (api, Some ident, ans, heap %%% eff %%% Heap.(hsingle ident ans))
+              (api, Some ident, ans, heap %%% eff %%% (Heap.hsingle ident ans))
           )
         (fun () -> (api, Some ident, ans, heap %%% eff) )
       (* (api, Some ident, ans, heap %%% eff) *)
@@ -229,7 +229,7 @@ and process_expr (api,heap) e =
 
         ( api
         , Heap.hcmps eff (Heap.hcall (Heap.li ident val_type) evaled_args)
-        , Heap.call (Heap.li ~heap ident val_type) evaled_args e.exp_type)
+        , Heap.call (Heap.ident ident val_type) evaled_args e.exp_type)
       | Vtypes.Lambda { lam_eff; lam_body; lam_argname } ->
           Format.printf "%s %d\n%!" __FILE__ __LINE__;
           let api, all_args_eff, evaled_args =
@@ -271,7 +271,6 @@ and process_expr (api,heap) e =
                   | _ ->
                       (* if next is not a lambda, then we should stop (or not?) *)
                       (theacc,tl)
-                      (* (eff, func, lam_eff, lam_body) *)
                 )
           in
           (match fuck with
@@ -280,10 +279,6 @@ and process_expr (api,heap) e =
               ( api
               , heap %%% all_args_eff %%% acced_eff
               , Heap.call term_rez xs typ)
-          (* | (_,xs) ->
-           *     Format.printf "Got non-apllied arguments: \n%!";
-           *     List.iter xs ~f:(fun e -> Format.printf "\t%s\n%!" (UntypeP.expr e) );
-           *     failwiths "not implemented on %s %d" __FILE__ __LINE__ *)
           )
       | Vtypes.LI (h, ident, typ) as func ->
           let api, arg_eff, evaled_args =
