@@ -4,7 +4,7 @@
 \usepackage{comment}
 
 \usepackage[ left=1cm
-           , right=1cm
+           , right=2cm
            , top=1cm
            , bottom=1.5cm
            ]{geometry}
@@ -13,31 +13,43 @@
 \usepackage{fontspec}
 % \DeclareMathSizes{22}{30}{24}{20}
 
-% Times New Roman 
-\setromanfont[
-    BoldFont=timesbd.ttf,
-    ItalicFont=timesi.ttf,
-    BoldItalicFont=timesbi.ttf,
-    Scale=1.5
-]{times.ttf}
-% Arial
-\setsansfont[
-    BoldFont=arialbd.ttf,
-    ItalicFont=ariali.ttf,
-    BoldItalicFont=arialbi.ttf,
-    Scale=1.5
-]{arial.ttf} 
-% Courier New
-\setmonofont[Scale=0.90,
-    BoldFont=courbd.ttf,
-    ItalicFont=couri.ttf,
-    BoldItalicFont=courbi.ttf,
-    Scale=1.5
-%     Color={0019D4}
-]{cour.ttf}
+
+%\setromanfont[
+%    BoldFont=timesbd.ttf,
+%    ItalicFont=timesi.ttf,
+%    BoldItalicFont=timesbi.ttf,
+%    Scale=1.5
+%]{times.ttf}
+%\setsansfont[
+%    BoldFont=arialbd.ttf,
+%    ItalicFont=ariali.ttf,
+%    BoldItalicFont=arialbi.ttf,
+%    Scale=1.5
+%]{arial.ttf} 
+%\setmonofont[Scale=0.90,
+%    BoldFont=courbd.ttf,
+%    ItalicFont=couri.ttf,
+%    BoldItalicFont=courbi.ttf,
+%    Scale=1.5
+%]{cour.ttf}
+
+\defaultfontfeatures{Ligatures={TeX}}
+\setmainfont[Scale=1.5]{Times New Roman}
+\setsansfont[Scale=1.5]{CMU Sans Serif}
+
+\setmonofont[ BoldFont=lmmonolt10-bold.otf
+			, ItalicFont=lmmono10-italic.otf
+			, BoldItalicFont=lmmonoproplt10-boldoblique.otf
+			, Scale=1.5
+]{lmmono9-regular.otf}
+
 \usepackage{unicode-math}
 \setmathfont{Latin Modern Math}[Scale=MatchLowercase]
 \newcommand*{\arr}{\ensuremath{\rightarrow}}
+
+% Doesn't work?
+\renewcommand{\epsilon}{\ensuremath{\varepsilon}}
+%\renewcommand{\sigma}{\ensuremath{\varsigma}}
 
 \begin{document}
 
@@ -60,6 +72,41 @@ let find heap x ?$\sigma$? =
 \end{minted}
 
 \section{Примеры}
+\subsection{Пример из статьи}
+Используется функция $SAT(Env, Rec(f), Phormula)$, которая означает что в контексте результатов символьного исполнения $Env$ после запуска функции $f$ не случается $Assert(Phormula)$, иными словами, после исполнения $f$ на произвольных аргументах формула не выполнима.
+
+Там есть типа алгоритм
+\begin{enumerate}
+  \item Нормализация $e$ и преобразование трёх верхнеуровневого объединения в конструкцию ветвления.
+  \item Замена ячеек $LI(\sigma,x)$  на  $find(\sigma, x, \tau)$.
+  \item Специализация $find$ согласно правилам.
+\end{enumerate}
+
+Например, надо проверить $SAT(Env, Rec(f), LI(\varepsilon, a) * 3< 17)$ при $Body(f) = $
+$merge(<c,\varepsilon>, <\neg c, \sigma \circ Rec(f)>)$, т.е. ограничение 
+$g = (Rec(f)\bullet LI(\varepsilon,a)*3<17) = (LI(Rec(f), a)*3 < 17)$ при некоторых наперед заданных $a$, $c$ и $\sigma$.
+
+Контекст, в котором происходит первый вызов $f$ будем обозначать $\tau_0$.
+
+Избавляемся от $LI$: $g = (find(Rec(f), a, \tau_0)*3 < 17)$
+
+Третий шаг порождает специализацию $find_f$, а закодированная формула становится 
+$g = (find_f\ \tau_0\ a)*3 < 17$.
+
+Теперь надо описать функцию $find_f\ \tau\ x = ... $ Тело получается применением шагов 1-3 к $Body(f)$: 
+
+\begin{center}
+$find( merge(<c,\varepsilon>, <\neg c, \sigma \circ Rec(f)>),\ x,\ \tau)$ = 
+ $ite(\tau\bullet c,\ find(\varepsilon,x,\tau),\ find(\sigma\circ Rec(f),x,\tau)$
+\end{center}
+Здесь получаются два $find$, которые надо специализировать.
+
+$find_{\varepsilon} \tau\ x = \tau\ x$
+
+$find_{\sigma\circ\ Rec(f)}\ \tau\ x = find_{f}\ (find_{\sigma}\ \tau)\ x$
+
+Функция $find_\sigma$ задана свыше, так как $\sigma$ задана свыше.
+
 \subsection{Фибоначчи самый наивный}
 \begin{minted}{ocaml}  
 let rec fib1 n = 
@@ -170,6 +217,23 @@ result_of(?$fib_{1638}$?) = ?$b_{1634}$?
 \begin{minted}[mathescape, escapeinside=??]{ocaml}
 ?$\forall n . (n \geqslant 1) \Rightarrow$? (Call (Ident ?$fib_{1638}$?) ?$\{n_{1003} \mapsto ndx_{1639}\}$?) ?$\geqslant n$?
 \end{minted}
+
+В терминах функции SAT: $SAT(Body, Rec(loop_{1635}), b_{1638} \leqslant n_{1003})$. Другими словами, после выполнения функции $loop_{1635}$ на куче $\tau_0=\{a\mapsto 1, b\mapsto 1, ndx\mapsto n\}$ формула $b_{1638} \leqslant n_{1003}$ будет невыполнима.
+
+Поехали. Нужно проверять $g = (Rec(loop)\bullet LI(\varepsilon, b) > n)$.
+
+Пихаем композицию внутрь:  $(LI(Rec(loop), b) > n)$.
+
+Вводим find: $find(Rec(loop), b, \tau_0) > n$.
+
+Порождаем специализацию $find_{loop}\ \tau\ x = ...$ и получаем формулу $find_{loop}\  \tau_0\ b > n$.
+
+Теперь надо специализровать тело функции $loop$. 
+\begin{center}
+	$find()$
+\end{center}
+
+
 
 \begin{minted}[mathescape, escapeinside=??]{ocaml}
 
