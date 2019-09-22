@@ -2,17 +2,15 @@
 
 ### System dependencies
 
-OPAM 2.x ((https://launchpad.net/~avsm/+archive/ubuntu/ppa-opam-experimental)[Ubuntu PPA])
+OPAM 2.x ([Ubuntu PPA](https://launchpad.net/~avsm/+archive/ubuntu/ppa-opam-experimental))
 
-
-### install dependencies 
+### install dependencies
 
     make dep
 
 ### Compile
 
     dune build main.exe
-
 
 ### Compile & run on input file
 

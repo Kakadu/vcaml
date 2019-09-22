@@ -323,7 +323,7 @@ and process_expr (api,heap) e =
 let work { Misc.sourcefile = filename } (t: Typedtree.structure) =
   let () =
     let sz = Option.value ~default:170 (Terminal_size.get_columns ()) in
-    Format.printf "terminal with = %d\n%!" sz;
+    Format.printf "terminal width = %d\n%!" sz;
     Format.pp_set_margin Format.std_formatter (sz-1);
     Format.pp_set_max_indent Format.std_formatter 2000 (* (sz-1) *)
   in
