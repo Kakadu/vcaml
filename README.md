@@ -1,8 +1,13 @@
 [![Build Status](https://travis-ci.org/Kakadu/vcaml.svg?branch=master)](https://travis-ci.org/Kakadu/vcaml)
 
-Recommended installation method is using OPAM ((https://launchpad.net/~avsm/+archive/ubuntu/ppa-opam-experimental)[Ubuntu PPA])
+### System dependencies
+
+OPAM 2.x ((https://launchpad.net/~avsm/+archive/ubuntu/ppa-opam-experimental)[Ubuntu PPA])
 
 
+### install dependencies 
+
+    make dep
 
 ### Compile
 

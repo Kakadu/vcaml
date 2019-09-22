@@ -1,7 +1,10 @@
-.PHONY: test tests celan
+.PHONY: dep test tests celan
 
 all:
 	@dune build ./main.exe
+
+dep:
+	opam install . --deps-only --yes
 
 tests: test
 test:
