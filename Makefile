@@ -13,4 +13,5 @@ test:
 celan: clean
 clean:
 	@dune clean
+	@$(RM) examples/*.cmi -f
 

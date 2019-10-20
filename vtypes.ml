@@ -57,8 +57,14 @@ end
 
 let pp_longident () lident = Longident.flatten lident |> String.concat ~sep:"."
 
-type logic_op = Conj | Disj [@@deriving gt ~options:{ fmt; gmap; eq }]
-type op = | Plus | Minus | LT | LE | GT | GE | Eq [@@deriving gt ~options:{ fmt; gmap; eq }]
+type logic_op = Conj | Disj
+[@@deriving gt ~options:{ fmt; gmap; eq }]
+type bin_op = Plus | Minus
+        | LT | LE | GT | GE | Eq
+        | LOR
+[@@deriving gt ~options:{ fmt; gmap; eq }]
+type un_op = LNEG
+[@@deriving gt ~options:{ fmt; gmap; eq }]
 
 type 'term pf = LogicBinOp of logic_op * 'term pf * 'term pf
               | Not of 'term pf
@@ -87,7 +93,8 @@ and term  =
    *)
   | LI of heap GT.option * MyIdent.t * MyTypes.type_expr
   | Ident of MyIdent.t  * MyTypes.type_expr
-  | BinOp of op * term * term * MyTypes.type_expr
+  | BinOp of bin_op * term * term * MyTypes.type_expr
+  | UnOp  of un_op * term * MyTypes.type_expr
   | Call of term * term GT.list * MyTypes.type_expr
   | Union of (term pf * term) GT.list
   | Lambda of { lam_argname: MyIdent.t GT.option
@@ -144,7 +151,10 @@ end
 
 (* Pretty-printing boilerplate now *)
 
-let fmt_op fmt = function
+let fmt_unop fmt = function
+| LNEG  -> Format.fprintf fmt "not "
+
+let fmt_binop fmt = function
   | Plus  -> Format.fprintf fmt "+"
   | Minus -> Format.fprintf fmt "-"
   | LT    -> Format.fprintf fmt "<"
@@ -152,6 +162,7 @@ let fmt_op fmt = function
   | LE    -> Format.fprintf fmt "≤"
   | GE    -> Format.fprintf fmt "≥"
   | Eq    -> Format.fprintf fmt "="
+  | LOR   -> Format.fprintf fmt "||"
 
 let fmt_logic_op fmt = function
   | Conj -> Format.fprintf fmt "∧"
@@ -206,11 +217,15 @@ class ['extra_term] my_fmt_term
       Format.fprintf fmt "@[; @[lam_body@ =@ %a@]@]@," fself_term term;
       Format.fprintf fmt "@[; @[lam_is_rec@ =@ %b@]@]" flg;
       Format.fprintf fmt "})@]"
-    method! c_BinOp inh___079_ _ op l r _typ =
-      Format.fprintf inh___079_ "@[(@,%a@ %a@,@ %a)@]"
+    method! c_BinOp fmt _ op l r _typ =
+      Format.fprintf fmt "@[(@,%a@ %a@,@ %a)@]"
         fself_term l
-        fmt_op op
+        fmt_binop op
         fself_term r
+    method! c_UnOp fmt _ op arg _typ =
+      Format.fprintf fmt "@[(@,%a@ %a)@]"
+        fself_term arg
+        fmt_unop op
     method! c_CInt fmt _ n = Format.fprintf fmt "%d" n
     method! c_Ident fmt _ ident _typ =
       Format.fprintf fmt "@[\"%a\"@]" (GT.fmt MyIdent.t) ident

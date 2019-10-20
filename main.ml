@@ -21,7 +21,7 @@ let implementation ppf sourcefile outputprefix =
   Compmisc.init_path false;
   let modulename = module_of_filename ppf sourcefile outputprefix in
   Env.set_unit_name modulename;
-  let env = Compmisc.initial_env() in
+  let env = Compmisc.initial_env () in
   (* let where_to_print = match !output_name with Some s -> s | None -> failwith "output file not specified" in *)
   try
     let (typedtree, _coercion) =
@@ -38,6 +38,10 @@ let implementation ppf sourcefile outputprefix =
       Typetexp.report_error env Format.std_formatter e;
       Format.printf "\n%!";
       raise exc
+    | Typecore.Error (loc, env, err) ->
+        Location.print_error Format.std_formatter loc;
+        Typecore.report_error env Format.std_formatter err;
+        exit 1
     | x -> raise x
 
 let c_file name =
@@ -60,7 +64,7 @@ let process_file ppf name =
     let opref = output_prefix name in
     implementation ppf name opref;
     objfiles := (opref ^ ".cmo") :: !objfiles
-  end 
+  end
   else
     raise(Arg.Bad("don't know what to do with " ^ name))
 

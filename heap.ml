@@ -98,7 +98,8 @@ let union xs =
       in
       Union reduced
 let union2 g1 t1 g2 t2 = union [(g1,t1); (g2,t2)]
-let binop op a b typ = simplify_term @@ BinOp (op,a,b,typ)
+let binop op a b typ = simplify_term @@ BinOp (op, a,b, typ)
+let unop  op arg typ = simplify_term @@ UnOp  (op, arg, typ)
 
 let is_empty_union = function
   | Union [] -> true
@@ -121,6 +122,9 @@ let pf_conj_list = function
   | h::hs -> List.fold_left ~init:h hs ~f:(pf_binop Conj)
 
 (** Heap construction *)
+let his_empty = function
+  | HDefined [] -> true
+  | _ -> false
 let hempty : heap = HDefined []
 let hdefined xs = HDefined xs
 let hsingle name el : t = hdefined [(name,el)]

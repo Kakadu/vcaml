@@ -22,8 +22,19 @@ let (%%%) = Heap.hcmps
   (* Heap.single (Lident "!") (Heap.lambda (Some (Lident "x")) Heap.empty (Heap.li (Heap.empty) (Lident "x"))) *)
 
 let is_binop = function
-  | "<=" | "<" | ">" | ">=" | "+" | "-"  -> true
+  | "<=" | "<" | ">" | ">=" | "+" | "-" | "||" -> true
   | _ -> false
+
+let classify_binop = function
+  | "<=" -> Some (Vtypes.LE, Predef.type_bool)
+  | "<"  -> Some (Vtypes.LT, Predef.type_bool)
+  | ">"  -> Some (Vtypes.GT, Predef.type_bool)
+  | ">=" -> Some (Vtypes.GE, Predef.type_bool)
+  | "="  -> Some (Vtypes.Eq, Predef.type_bool)
+  | "+"  -> Some (Vtypes.Plus,  Predef.type_int)
+  | "-"  -> Some (Vtypes.Minus, Predef.type_int)
+  | "||" -> Some (Vtypes.LOR,   Predef.type_bool)
+  | _    -> None
 
 exception IdentNotFound of MyIdent.t  * string
 let ident_not_found ident fmt =
@@ -38,24 +49,31 @@ let find_lident api heap ident typ =
       | exception Not_found -> ident_not_found ident "find_lident: can't find on ident '%a'" MyIdent.pp_string ident
 
 let rec process_str api { str_items; _ } : Heap.Api.t * Vtypes.t =
-  List.fold_left ~f:process_si ~init:(api, Heap.hempty) str_items
-and process_si (api,heap) { str_desc; _} : Heap.Api.t * Vtypes.t =
+  List.fold_left ~init:(api, Heap.hempty) str_items
+    ~f:(fun acc si ->
+          match process_si acc si with
+          | None -> acc
+          | Some rez -> rez
+       )
+and process_si (api,heap) { str_desc; _} : (Heap.Api.t * Vtypes.t) option =
   match str_desc with
+  | Tstr_attribute _ -> None
   | Tstr_value (recflg, [vb]) -> begin
     match process_vb (api, Heap.hempty) recflg vb with
     | (api, Some ident, ans, heff) ->
-        ( Heap.Api.add api ident (recflg, ans)
-        , Heap.hcmps heap heff)
+        Some  ( Heap.Api.add api ident (recflg, ans)
+              , Heap.hcmps heap heff)
     | _ -> assert false
   end
-| Tstr_value (recflg, vbs) -> assert false
-| _ -> assert false
+  | Tstr_value (recflg, vbs) -> assert false
+  | _ -> assert false
 and process_vb (api,heap) recflg { vb_pat; vb_expr; _ } : Heap.Api.t * MyIdent.t option * Vtypes.term * Vtypes.t =
   (* returns maybe identifier,
    * rhs effect,
    * effect thats is created by binding creation *)
   (* Format.eprintf "process_vb: ... = '%s'\n%!" (UntypeP.expr vb_expr); *)
   match vb_pat.pat_desc with
+
   | Tpat_var (ident,_) ->
       let api = match recflg with
         | Nonrecursive -> api
@@ -123,17 +141,9 @@ and process_expr (api,heap) e =
       (* Do we need explicit derefenrecing? *)
       process_expr (api, heap) e
   | Texp_apply ({exp_desc=Texp_ident(_,{txt=Lident opname},_)}, [(_,Some l); (_,Some r) ])
-        when is_binop opname -> begin
+        when Option.is_some (classify_binop opname) -> begin
     (* binop *)
-    let op,rez_typ = match opname with
-      | "<=" -> Vtypes.LE, Predef.type_bool
-      | "<"  -> Vtypes.LT, Predef.type_bool
-      | ">"  -> Vtypes.GT, Predef.type_bool
-      | ">=" -> Vtypes.GE, Predef.type_bool
-      | "+"  -> Vtypes.Plus,  Predef.type_int
-      | "-"  -> Vtypes.Minus, Predef.type_int
-      | _ -> failwiths "not supported (weakly typed code): '%s'" opname
-    in
+    let op,rez_typ = Base.Option.value_exn  (classify_binop opname) in
     (* Although we don't need to return updated API we return it
      * to have a global cache of function summaries *)
     let api_1,h1,l2 = process_expr (api,heap) l in
@@ -159,6 +169,10 @@ and process_expr (api,heap) e =
     let api,h,r = process_expr (api,heap) r in
     (api,h,r)
   end
+  | Texp_apply ({exp_desc=Texp_ident(Pdot (Pident _ident, "not", _), _, _)}, [ (_,Some rhs) ]) ->
+    let api,h,r = process_expr (api,heap) rhs in
+    (api,h, Heap.unop Vtypes.LNEG r Predef.type_bool)
+
   | Texp_apply ({exp_desc=Texp_ident(Pident ident,_,{val_type})}, [(Asttypes.Nolabel,Some arg)]) -> begin
     (* Now: real function application *)
     let api,arg_eff,arg_evaled = process_expr (api, Heap.hempty) arg in
@@ -320,6 +334,48 @@ and process_expr (api,heap) e =
   | _ -> failwith ("not implemented " ^ UntypeP.expr e)
 
 
+let get_properies t =
+  let rgxp = Str.regexp "prop\\(\\.\\([a-zA-Z]+\\)\\)?" in
+  let ans = ref [] in
+  let module ItArg = struct
+    include TypedtreeIter.DefaultIteratorArgument
+    let enter_structure_item si =
+      match si.str_desc with
+      | Tstr_attribute ({txt; loc}, PStr [e])
+          when Str.string_match rgxp txt 0 ->
+            let name = match Str.matched_group 2 txt with
+              | s -> Some s
+              | exception Not_found -> None
+            in
+            Base.Ref.replace ans (List.cons (loc, e, name))
+      | _ -> ()
+  end in
+  let module It =
+    TypedtreeIter.MakeIterator(ItArg)
+  in
+  It.iter_structure t;
+  !ans
+
+let hornize api exprs =
+  let module VHC = VHornClauses in
+  let rec skip_lambdas t =
+    match t with
+    | Vtypes.Lambda { lam_body } -> skip_lambdas lam_body
+    | t -> t
+  in
+  let rec helper i (term, _name) : Format.formatter -> unit =
+
+    match term with
+    | Vtypes.CInt n -> VHC.T.int n
+    | _ -> failwiths "TODO: %s %d" __FILE__ __LINE__
+  in
+  List.iteri exprs ~f:(fun n (t,name) ->
+    Format.printf "%a\n\n%!" Vtypes.fmt_term t;
+    helper n (skip_lambdas t,name) Format.std_formatter
+
+  )
+
+
 let work { Misc.sourcefile = filename } (t: Typedtree.structure) =
   let () =
     let sz = Option.value ~default:170 (Terminal_size.get_columns ()) in
@@ -336,4 +392,19 @@ let work { Misc.sourcefile = filename } (t: Typedtree.structure) =
   Format.printf "%a\n\n%!" Vtypes.fmt_heap h;
   Format.printf "**** Final API\n%!";
   Format.printf "%a\n\n%!" Vtypes.fmt_api (fst api);
+
+  let props = get_properies t in
+  Format.printf "+++++ Typing %d properties\n%!" (List.length props);
+  let ty_prop_exprs = List.map props ~f:(fun (loc, si, _name) ->
+    let (tstr, _tsgn, _newenv) = Typemod.type_structure t.str_final_env [si] loc in
+    match tstr.str_items with
+    | [{str_desc=(Tstr_eval (e,_))}] ->
+        let (api, heap, term) = process_expr (api,h) e in
+        (* TODO: check that API didn't change *)
+        (* TODO: check that not new effects appeared *)
+        (term, _name)
+    | _ -> failwiths "Should not happen: property representation wrong (%s %d)" __FILE__ __LINE__
+  ) in
+  (* REMARK: we use _old_ API here *)
+  let () = hornize api ty_prop_exprs in
   ()
