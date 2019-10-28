@@ -8,12 +8,14 @@ val clause : ?head:formula -> formula list -> clause
 module T : sig
   val int  : int ->  term
   val bool : bool -> term
+  val var  : string -> term
   val call_uf : string -> term list -> term
 end
 
 module F : sig
   val le : term -> term -> formula
   val eq : term -> term -> formula
+  val neg : term -> formula
 end
 
 module S : sig

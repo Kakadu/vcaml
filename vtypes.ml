@@ -10,7 +10,6 @@ module MyIdent = struct
 
   type t = Ident.t
   let to_string ident = Ident.unique_name ident
-  (* let sexp_of_t ident  = to_string ident |> Sexplib.Std.sexp_of_string *)
   let pp_string () = to_string
   let equal = Ident.equal
 
@@ -26,8 +25,7 @@ module MyIdent = struct
   module Map = struct
     include Ident.Map
 
-    class ['ia,'a,'sa, 'i, 'self, 'syn] t_t = object
-    end
+    class ['ia,'a,'sa, 'i, 'self, 'syn] t_t = object end
     let gcata_t _ _ _ = assert false
     let t =
         { GT.gcata = gcata_t
@@ -59,10 +57,10 @@ let pp_longident () lident = Longident.flatten lident |> String.concat ~sep:"."
 
 type logic_op = Conj | Disj
 [@@deriving gt ~options:{ fmt; gmap; eq }]
-type bin_op = Plus | Minus
+(* type bin_op = Plus | Minus
         | LT | LE | GT | GE | Eq
         | LOR
-[@@deriving gt ~options:{ fmt; gmap; eq }]
+[@@deriving gt ~options:{ fmt; gmap; eq }] *)
 type un_op = LNEG
 [@@deriving gt ~options:{ fmt; gmap; eq }]
 
@@ -74,29 +72,46 @@ type 'term pf = LogicBinOp of logic_op * 'term pf * 'term pf
               | Term of 'term
 [@@deriving gt ~options:{ fmt; gmap; eq }]
 
-type mem_repr = MemLeaf of int
-              | MemBlock of {mem_tag: int; mem_sz: int; mem_cnt: mem_repr list }
+type mem_repr = MemLeaf  of  int
+              | MemBlock of { mem_tag: int; mem_sz: int; mem_cnt: mem_repr list }
 
 type rec_flag = Asttypes.rec_flag = Nonrecursive | Recursive [@@deriving gt ~options:{ fmt; gmap; eq }]
 
+type builtin =
+  | BiPlus
+  | BiMinus
+  | BiLT | BiLE | BiGT | BiGE | BiEq
+  | BiOR
+  | BiAnd
+  | BiNeg
+[@@deriving gt ~options:{ fmt; gmap; eq }]
+
+(* type   z = Z
+type _ s = S : 'n -> 'n s
+
+type ('size, 'a) vector =
+  | Nil  :                                          (z, 'a) vector
+  | Cons : ('a * ('oldsize, 'a) vector) -> ('oldsize s, 'a) vector *)
+
 (* **)
 type api = MyAPI of (rec_flag * term) MyIdent.Map.t
-and term  =
-  (* int,bool and unit doesn't need types because we have them in Predef module *)
+and term =
+  (* int, bool and unit doesn't need types because we have them in Predef module *)
   | CInt  of GT.int
   | CBool of GT.bool
   | Unit
   (* TODO: Lazy Instantiation contains a context heap, identifier and type of that identifier
     In case of reading from defined heap (when we know all concrete heaps) the None will be stored
     and it will be most common case. In more complex situation (Composition or Mutation of heap)
-    Some-thing will be stored there.
+    Something will be stored there.
    *)
-  | LI of heap GT.option * MyIdent.t * MyTypes.type_expr
-  | Ident of MyIdent.t  * MyTypes.type_expr
-  | BinOp of bin_op * term * term * MyTypes.type_expr
-  | UnOp  of un_op * term * MyTypes.type_expr
-  | Call of term * term GT.list * MyTypes.type_expr
-  | Union of (term pf * term) GT.list
+  | LI    of heap GT.option * MyIdent.t * MyTypes.type_expr
+  | Ident of MyIdent.t * MyTypes.type_expr
+  (* | BinOp of bin_op * term * term * MyTypes.type_expr
+  | UnOp  of un_op * term * MyTypes.type_expr *)
+  | Builtin of builtin * MyTypes.type_expr
+  | Call    of term * term GT.list * MyTypes.type_expr
+  | Union   of (term pf * term) GT.list
   | Lambda of { lam_argname: MyIdent.t GT.option
               ; lam_api    : api
               ; lam_eff    : heap
@@ -122,7 +137,6 @@ and t =
 and heap = t
 [@@deriving gt ~options:{ fmt; eq; gmap }]
 
-(* **)
 
 type defined_heap = (MyIdent.t * term) list
 
@@ -154,15 +168,17 @@ end
 let fmt_unop fmt = function
 | LNEG  -> Format.fprintf fmt "not "
 
-let fmt_binop fmt = function
-  | Plus  -> Format.fprintf fmt "+"
-  | Minus -> Format.fprintf fmt "-"
-  | LT    -> Format.fprintf fmt "<"
-  | GT    -> Format.fprintf fmt ">"
-  | LE    -> Format.fprintf fmt "≤"
-  | GE    -> Format.fprintf fmt "≥"
-  | Eq    -> Format.fprintf fmt "="
-  | LOR   -> Format.fprintf fmt "||"
+let fmt_builtin fmt = function
+  | BiPlus  -> Format.fprintf fmt "+"
+  | BiMinus -> Format.fprintf fmt "-"
+  | BiLT    -> Format.fprintf fmt "<"
+  | BiGT    -> Format.fprintf fmt ">"
+  | BiLE    -> Format.fprintf fmt "≤"
+  | BiGE    -> Format.fprintf fmt "≥"
+  | BiEq    -> Format.fprintf fmt "="
+  | BiOR    -> Format.fprintf fmt "||"
+  | BiAnd   -> Format.fprintf fmt "&&"
+  | BiNeg   -> Format.fprintf fmt "not"
 
 let fmt_logic_op fmt = function
   | Conj -> Format.fprintf fmt "∧"
@@ -180,8 +196,8 @@ class ['a, 'extra_pf] my_fmt_pf for_term fself_pf =
       match subj with
       | Not (EQident (l,r)) ->
           Format.fprintf fmt "@[(%a@ ≠@ %a)@]" (GT.fmt MyIdent.t) l (GT.fmt MyIdent.t) r
-      | Not (Term (BinOp (LE,l,r,typ))) -> for_term fmt (BinOp (GT,l,r, typ))
-      | Not (Term (BinOp (GT,l,r,typ))) -> for_term fmt (BinOp (LE,l,r, typ))
+      (* | Not (Term (BinOp (LE,l,r,typ))) -> for_term fmt (BinOp (GT,l,r, typ))
+      | Not (Term (BinOp (GT,l,r,typ))) -> for_term fmt (BinOp (LE,l,r, typ)) *)
       | _ -> Format.fprintf fmt "¬%a" fself_pf f
     method! c_EQident fmt _ l r =
       Format.fprintf fmt "@[(%a@ =@ %a)@]"
@@ -208,7 +224,7 @@ class ['extra_term] my_fmt_term
     ((for_api, for_t, fself_term,for_heap) as _mutuals_pack)
   =
   object
-    inherit  ['extra_term] fmt_term_t_stub _mutuals_pack
+    inherit  ['extra_term] fmt_term_t_stub _mutuals_pack as super
     method! c_Lambda fmt _ _x__090_ _api heap term flg _ =
       Format.fprintf fmt "(Lambda @[<v>{ ";
       Format.fprintf fmt "@[lam_argname@ =@ %a@]@," (GT.fmt GT.option (GT.fmt MyIdent.t)) _x__090_;
@@ -217,7 +233,8 @@ class ['extra_term] my_fmt_term
       Format.fprintf fmt "@[; @[lam_body@ =@ %a@]@]@," fself_term term;
       Format.fprintf fmt "@[; @[lam_is_rec@ =@ %b@]@]" flg;
       Format.fprintf fmt "})@]"
-    method! c_BinOp fmt _ op l r _typ =
+    method! c_Builtin fmt me op = super#c_Builtin fmt me op
+    (* method! c_BinOp fmt _ op l r _typ =
       Format.fprintf fmt "@[(@,%a@ %a@,@ %a)@]"
         fself_term l
         fmt_binop op
@@ -225,7 +242,7 @@ class ['extra_term] my_fmt_term
     method! c_UnOp fmt _ op arg _typ =
       Format.fprintf fmt "@[(@,%a@ %a)@]"
         fself_term arg
-        fmt_unop op
+        fmt_unop op *)
     method! c_CInt fmt _ n = Format.fprintf fmt "%d" n
     method! c_Ident fmt _ ident _typ =
       Format.fprintf fmt "@[\"%a\"@]" (GT.fmt MyIdent.t) ident
@@ -251,8 +268,32 @@ class ['extra_term] my_fmt_term
         ) _x__088_; *)
       ()
     method c_Call fmt _ f args _typ =
-      Format.fprintf fmt "Call@ @[@,%a,@,@ (%a@,)@]" fself_term f (GT.fmt GT.list fself_term) args
-
+      match f with
+      | Ident (id, typ) ->
+          Format.fprintf fmt "Call@ @[@,%a,@,@ (%a@,)@]" fself_term f (GT.fmt GT.list fself_term) args
+      | Builtin (BiEq, _) ->
+          assert (List.length args = 2);
+          let l = List.hd_exn args in
+          let r = List.nth_exn args 1 in
+          Format.fprintf fmt "@[(%a@ =@ %a)@]" fself_term l fself_term r
+      | Builtin (BiLE, _) ->
+          assert (List.length args = 2);
+          let l = List.hd_exn args in
+          let r = List.nth_exn args 1 in
+          Format.fprintf fmt "@[(%a@ ≤@ %a)@]" fself_term l fself_term r
+      | Builtin (BiAnd as op, _) ->
+          assert (List.length args > 0);
+          Format.fprintf fmt "@[(";
+          List.iteri args ~f:(fun i t ->
+            if i>0 then Format.fprintf fmt "@ %a@ " fmt_builtin op;
+            fself_term fmt t
+          );
+          Format.fprintf fmt ")@]";
+      | Builtin (BiNeg as op, _) ->
+          assert (List.length args = 1);
+          Format.fprintf fmt "@[¬(%a)@]" fself_term (List.hd_exn args)
+      | _ ->
+          Format.fprintf fmt "Call@ @[@,%a,@,@ (%a@,)@]" fself_term f (GT.fmt GT.list fself_term) args
   end
 
 let hack_rec_flg fmt = function
@@ -318,7 +359,7 @@ class ['extra_t] my_fmt_t ((for_api, fself_t, for_term, for_heap) as _mutuals_pa
         | [] -> Format.fprintf fmt "[]"
         | x::xs ->
           Format.fprintf fmt "@[<v>";
-          let f = GT.fmt GT.tuple2 (GT.fmt pf for_term) fself_t in
+          let f fmt (g,h) = Format.fprintf fmt "(%a, %a)" (GT.fmt pf for_term) g fself_t h in
           Format.fprintf fmt   "@[[ %a@]" f x;
           List.iter xs ~f:(fun p -> Format.fprintf fmt "@,@[; @,%a@]@," f p);
           Format.fprintf fmt "]@]"

@@ -12,32 +12,53 @@ let rec type_of_term = function
   | Union ((_,t)::_) -> type_of_term t
   | CInt _  -> Some Predef.type_int
   | CBool _ -> Some Predef.type_bool
-  | Unit -> Some Predef.type_unit
+  | Unit    -> Some Predef.type_unit
   | LI (_,_,t)
   | Ident (_,t)
-  | BinOp (_,_,_,t)
+  | Builtin (_,t)
+  (* | BinOp (_,_,_,t) *)
   | Lambda {lam_typ = t}
   | Call (_,_,t) -> Some t
 
   (* | _ -> failwiths "Not implemented %s %d" __FILE__ __LINE__ *)
 
 (** Simplification *)
-let eval_binop = function
+(* let eval_binop = function
   | Plus  -> (fun x y -> CInt  (x+y))
   | Minus -> (fun x y -> CInt  (x-y))
   | LT    -> (fun x y -> CBool (x<y))
   | LE    -> (fun x y -> CBool (x<=y))
   | GT    -> (fun x y -> CBool (x>y))
   | GE    -> (fun x y -> CBool (x>=y))
-  | Eq    -> (fun x y -> CBool (x=y))
+  | Eq    -> (fun x y -> CBool (x=y)) *)
+(*
+let eval_builtin = function
+  | BiPlus  -> (fun x y -> CInt  (x+y))
+  | BiMinus -> (fun x y -> CInt  (x-y))
+  | BiLT    -> (fun x y -> CBool (x<y))
+  | BiLE    -> (fun x y -> CBool (x<=y))
+  | BiGT    -> (fun x y -> CBool (x>y))
+  | BiGE    -> (fun x y -> CBool (x>=y))
+  | BiEq    -> (fun x y -> CBool (x=y))
+  | BiOR    -> (fun x y -> CBool (x || y)) *)
 
-let rec simplify_term = function
-  | BinOp (op,l,r,typ) -> begin
-      match (simplify_term l, simplify_term r) with
-      | (CInt n, CInt m) -> eval_binop op n m
-      | (l,r) -> BinOp (op,l,r,typ)
-  end
+let simplify_term t =
+  let rec helper = function
+  | Call (Builtin (BiPlus as op, _typ1), [l;r], _typ2) ->
+      wrapInt l r
+        ~ok:(fun m n -> CInt (m+n))
+        ~fail:(fun l r -> Call (Builtin (op, _typ1), [l;r], _typ2) )
+  | Call (Builtin (BiMinus as op, _typ1), [l;r], _typ2) ->
+      wrapInt l r
+        ~ok:(fun m n -> CInt (m-n))
+        ~fail:(fun l r -> Call (Builtin (op, _typ1), [l;r], _typ2) )
   | term -> term
+  and wrapInt l r ~ok ~fail =
+    match (helper l, helper r) with
+      | (CInt n, CInt m) -> ok n m
+      | (l,r) -> fail l r
+  in
+  helper t
 
 let rec simplify_pf = function
   | Not ph -> begin
@@ -98,8 +119,9 @@ let union xs =
       in
       Union reduced
 let union2 g1 t1 g2 t2 = union [(g1,t1); (g2,t2)]
-let binop op a b typ = simplify_term @@ BinOp (op, a,b, typ)
-let unop  op arg typ = simplify_term @@ UnOp  (op, arg, typ)
+let binop op a b typ = simplify_term @@ Call (op, [a;b], typ)
+let unop  op arg typ = simplify_term @@ Call (op, [arg], typ)
+let builtin op typ = Builtin (op, typ)
 
 let is_empty_union = function
   | Union [] -> true
@@ -205,7 +227,8 @@ let rec hdot_defined hs term =
   | Ident (_, _) ->
     (* Terms that are concrente adn a priori known should not be affected my heap mutation *)
     term
-  | BinOp (op, l, r, typ) -> BinOp (op, hdot_defined hs l, hdot_defined hs r, typ)
+  | Builtin _ -> term
+  (* | BinOp (op, l, r, typ) -> BinOp (op, hdot_defined hs l, hdot_defined hs r, typ) *)
   | Unit
   | CBool _
   | CInt _ -> term
@@ -214,7 +237,7 @@ let rec hdot_defined hs term =
                       , hdot_defined hs t)
                     )
   | Call (f, args, typ) ->
-      Format.eprintf "TODO: not implemented %s %d\n%!" __FILE__ __LINE__;
+      (* Format.eprintf "TODO: not implemented %s %d\n%!" __FILE__ __LINE__; *)
       Call (hdot_defined hs f, List.map args ~f:(hdot_defined hs), typ)
   | Lambda _ ->
       Format.eprintf "TODO: not implemented %s %d\n%!" __FILE__ __LINE__;
@@ -336,6 +359,12 @@ let hdot heap term =
 and term_subst term lident new_term =
   Format.eprintf "heap_subst not implemented\n%!";
   term *)
+
+
+let bubble_disj_term troot =
+  let rec helper t = t
+  in
+  helper troot
 
 module Api = struct
   type t = api * MyIdent.t list

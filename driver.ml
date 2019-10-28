@@ -26,14 +26,15 @@ let is_binop = function
   | _ -> false
 
 let classify_binop = function
-  | "<=" -> Some (Vtypes.LE, Predef.type_bool)
-  | "<"  -> Some (Vtypes.LT, Predef.type_bool)
-  | ">"  -> Some (Vtypes.GT, Predef.type_bool)
-  | ">=" -> Some (Vtypes.GE, Predef.type_bool)
-  | "="  -> Some (Vtypes.Eq, Predef.type_bool)
-  | "+"  -> Some (Vtypes.Plus,  Predef.type_int)
-  | "-"  -> Some (Vtypes.Minus, Predef.type_int)
-  | "||" -> Some (Vtypes.LOR,   Predef.type_bool)
+  | "<=" -> Some (Vtypes.BiLE, Predef.type_bool)
+  | "<"  -> Some (Vtypes.BiLT, Predef.type_bool)
+  | ">"  -> Some (Vtypes.BiGT, Predef.type_bool)
+  | ">=" -> Some (Vtypes.BiGE, Predef.type_bool)
+  | "="  -> Some (Vtypes.BiEq, Predef.type_bool)
+  | "+"  -> Some (Vtypes.BiPlus,  Predef.type_int)
+  | "-"  -> Some (Vtypes.BiMinus, Predef.type_int)
+  | "||" -> Some (Vtypes.BiOR,    Predef.type_bool)
+  | "&&" -> Some (Vtypes.BiAnd,   Predef.type_bool)
   | _    -> None
 
 exception IdentNotFound of MyIdent.t  * string
@@ -140,7 +141,7 @@ and process_expr (api,heap) e =
   | Texp_apply ({exp_desc=Texp_ident(_,{txt=Ldot(Lident _, "ref")},_)}, [(_,Some e)]) ->
       (* Do we need explicit derefenrecing? *)
       process_expr (api, heap) e
-  | Texp_apply ({exp_desc=Texp_ident(_,{txt=Lident opname},_)}, [(_,Some l); (_,Some r) ])
+  | Texp_apply ({exp_desc=Texp_ident(_,{txt=Lident opname},{val_type})}, [(_,Some l); (_,Some r) ])
         when Option.is_some (classify_binop opname) -> begin
     (* binop *)
     let op,rez_typ = Base.Option.value_exn  (classify_binop opname) in
@@ -148,7 +149,7 @@ and process_expr (api,heap) e =
      * to have a global cache of function summaries *)
     let api_1,h1,l2 = process_expr (api,heap) l in
     let api_2,h2,r2 = process_expr (api_1,h1) r in
-    (api_2, h2, Heap.binop op l2 r2 rez_typ)
+    (api_2, h2, Heap.binop (Heap.builtin op val_type) l2 r2 rez_typ)
   end
   | Texp_apply ({exp_desc=Texp_ident(Pdot (Pident _ident,":=",_), _, _)},
                [(_,Some {exp_desc=Texp_ident(Pident ident,_,_)}); (_,Some rhs) ]) -> begin
@@ -169,9 +170,9 @@ and process_expr (api,heap) e =
     let api,h,r = process_expr (api,heap) r in
     (api,h,r)
   end
-  | Texp_apply ({exp_desc=Texp_ident(Pdot (Pident _ident, "not", _), _, _)}, [ (_,Some rhs) ]) ->
+  | Texp_apply ({exp_desc=Texp_ident(Pdot (Pident _ident, "not", _), _, {val_type})}, [ (_,Some rhs) ]) ->
     let api,h,r = process_expr (api,heap) rhs in
-    (api,h, Heap.unop Vtypes.LNEG r Predef.type_bool)
+    (api,h, Heap.unop (Heap.builtin Vtypes.BiNeg val_type) r Predef.type_bool)
 
   | Texp_apply ({exp_desc=Texp_ident(Pident ident,_,{val_type})}, [(Asttypes.Nolabel,Some arg)]) -> begin
     (* Now: real function application *)
@@ -357,23 +358,61 @@ let get_properies t =
   !ans
 
 let hornize api exprs =
+  let open Format in
   let module VHC = VHornClauses in
   let rec skip_lambdas t =
     match t with
     | Vtypes.Lambda { lam_body } -> skip_lambdas lam_body
     | t -> t
   in
-  let rec helper i (term, _name) : Format.formatter -> unit =
-
+  let rec helper term : VHC.formula =
+    (* Type of term should be bool *)
     match term with
-    | Vtypes.CInt n -> VHC.T.int n
-    | _ -> failwiths "TODO: %s %d" __FILE__ __LINE__
-  in
-  List.iteri exprs ~f:(fun n (t,name) ->
-    Format.printf "%a\n\n%!" Vtypes.fmt_term t;
-    helper n (skip_lambdas t,name) Format.std_formatter
+    | CBool b -> VHC.T.bool b
+    | Call (Builtin (BiLE, _), [Ident (l,_); CInt r], _)
+    | Call (Builtin (BiLE, _), [CInt       r; Ident (l,_)], _) ->
+        let name = MyIdent.to_string l in
+        VHC.(F.le (T.var name) (T.int r))
 
-  )
+    | Call (Builtin (BiLE, _), [LI (_,l,_); CInt r], _)
+    | Call (Builtin (BiLE, _), [CInt     r; LI (_,l,_)], _) ->
+        let name = MyIdent.to_string l in
+        VHC.(F.le (T.var name) (T.int r))
+
+    | Call (Builtin (BiEq, _), [LI (_,l,_); CInt r], _)
+    | Call (Builtin (BiEq, _), [CInt     r; LI (_,l,_)], _) ->
+        let name = MyIdent.to_string l in
+        VHC.(F.eq (T.var name) (T.int r))
+
+    | Call (Builtin (BiNeg, _), [ff], _) ->
+        VHC.F.neg (helper ff)
+    (* | Call (Builtin (BiEq, _), [l;r], _) -> assert false *)
+
+    | Call (LI (_,id,_), args, _) ->
+        assert false
+
+    | _ ->
+        fprintf std_formatter "%a\n%!" (GT.fmt Vtypes.term) term;
+        failwiths "TODO: %s %d" __FILE__ __LINE__
+  in
+  let clauses =
+    let rec hack_clause term : VHC.formula list =
+      match term with
+      | Vtypes.Call (Builtin (BiAnd, _), args, _)  ->
+          List.map args ~f:helper
+          (* helper n (term,name) Format.std_formatter *)
+      | _ -> failwiths "TODO: %s %d" __FILE__ __LINE__
+    in
+    List.concat @@ List.mapi exprs ~f:(fun n (t,name) ->
+      (* Format.printf "%a\n\n%!" Vtypes.fmt_term t; *)
+      match skip_lambdas t with
+      | Vtypes.Union xs ->
+          List.map xs ~f:(fun (_,t) -> VHC.clause @@ hack_clause t)
+      | t -> [ VHC.clause @@ hack_clause t ]
+    )
+  in
+  VHC.pp_clauses Format.std_formatter clauses
+
 
 
 let work { Misc.sourcefile = filename } (t: Typedtree.structure) =

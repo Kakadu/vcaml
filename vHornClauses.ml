@@ -22,6 +22,7 @@ let clause ?head fs = (head, fs)
 module T = struct
   let int  n fmt = Format.fprintf fmt "%d" n
   let bool b fmt = Format.fprintf fmt "%b" b
+  let var  s fmt = Format.fprintf fmt "%s" s
   let call_uf s xs fmt =
     Format.fprintf fmt "(%s " s;
     List.iter xs ~f:(fun f  -> f fmt);
@@ -31,6 +32,10 @@ end
 module F = struct
   let le _ _ = (fun fmt -> ())
   let eq _ _ = (fun fmt -> ())
+  let neg f fmt =
+    Format.fprintf fmt "(not ";
+    f fmt;
+    Format.fprintf fmt ")"
 end
 
 let declare_rel name sorts = fun fmt ->
