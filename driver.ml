@@ -359,7 +359,7 @@ let get_properies t =
 
 let hornize api exprs =
   let open Format in
-  let module VHC = VHornClauses in
+  let module VHC = VHornClauses.V1 in
   let rec skip_lambdas t =
     match t with
     | Vtypes.Lambda { lam_body } -> skip_lambdas lam_body
@@ -370,14 +370,18 @@ let hornize api exprs =
     match term with
     | CBool b -> VHC.T.bool b
     | Call (Builtin (BiLE, _), [Ident (l,_); CInt r], _)
-    | Call (Builtin (BiLE, _), [CInt       r; Ident (l,_)], _) ->
+    | Call (Builtin (BiGE, _), [CInt       r; Ident (l,_)], _) ->
         let name = MyIdent.to_string l in
         VHC.(F.le (T.var name) (T.int r))
 
     | Call (Builtin (BiLE, _), [LI (_,l,_); CInt r], _)
-    | Call (Builtin (BiLE, _), [CInt     r; LI (_,l,_)], _) ->
+    | Call (Builtin (BiGE, _), [CInt     r; LI (_,l,_)], _) ->
         let name = MyIdent.to_string l in
         VHC.(F.le (T.var name) (T.int r))
+
+    | Call (Builtin (BiGT, _), [a; b], _)
+    | Call (Builtin (BiLT, _), [b; a], _) ->
+        VHC.(F.gt (helper_term a) (helper_term b))
 
     | Call (Builtin (BiEq, _), [LI (_,l,_); CInt r], _)
     | Call (Builtin (BiEq, _), [CInt     r; LI (_,l,_)], _) ->
@@ -391,9 +395,36 @@ let hornize api exprs =
     | Call (LI (_,id,_), args, _) ->
         assert false
 
+    | Call (Builtin (BiEq, _), [l; r], _) ->
+        (* TODO: bubbling up of result from calls of orelational symbols *)
+        assert false
+
+    (* (f arg arg2 = N) *)
+    | Call (Builtin (BiEq, _), [Call (LI (_,id,_), args, _); CInt r as rhs ], _) ->
+        let name = MyIdent.to_string id in
+        VHC.(F.eq
+              (T.call_uf name @@
+                List.map ~f:helper_term (args @ [rhs]) )
+              (helper_term rhs)
+            )
+
     | _ ->
         fprintf std_formatter "%a\n%!" (GT.fmt Vtypes.term) term;
         failwiths "TODO: %s %d" __FILE__ __LINE__
+
+  and helper_term term : VHC.term = match term with
+    | CInt n           -> VHC.T.int n
+    | Ident (id, _)    -> VHC.T.var (MyIdent.to_string id)
+    | LI (None, id, _) -> VHC.T.var (MyIdent.to_string id)
+    | Call (Builtin (BiMinus, _), [l; r], _) ->
+        VHC.(T.minus (helper_term l) (helper_term r))
+    | Call (Builtin (BiPlus, _), [l; r], _) ->
+        VHC.(T.plus  (helper_term l) (helper_term r))
+
+    | _ ->
+        fprintf std_formatter "%a\n%!" (GT.fmt Vtypes.term) term;
+        failwiths "TODO: %s %d" __FILE__ __LINE__
+
   in
   let clauses =
     let rec hack_clause term : VHC.formula list =
