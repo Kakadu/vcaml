@@ -1,8 +1,8 @@
-module type HornAPI =  sig
+module type HornAPI = sig
   type clause
-  type formula  = Format.formatter -> unit
-  type term = Format.formatter -> unit
-  type sort = Format.formatter -> unit
+  type formula
+  type term
+  type sort
 
   val clause : ?head:formula -> formula list -> clause
 
@@ -22,7 +22,7 @@ module type HornAPI =  sig
     val gt : term -> term -> formula
 
     val eq : term -> term -> formula
-    val neg : term -> formula
+    val neg : formula -> formula
     val call_rel : string -> term list -> formula
   end
 
@@ -34,3 +34,4 @@ module type HornAPI =  sig
 end
 
 module V1: HornAPI
+module V2: HornAPI

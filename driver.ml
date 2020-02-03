@@ -359,7 +359,7 @@ let get_properies t =
 
 let hornize api exprs =
   let open Format in
-  let module VHC = VHornClauses.V1 in
+  let module VHC = VHornClauses.V2 in
   let rec skip_lambdas t =
     match t with
     | Vtypes.Lambda { lam_body } -> skip_lambdas lam_body
@@ -368,7 +368,9 @@ let hornize api exprs =
   let rec helper term : VHC.formula =
     (* Type of term should be bool *)
     match term with
-    | CBool b -> VHC.T.bool b
+    | CBool b ->
+        failwith "Don't know what to do with boolean terms"
+(*        VHC.T.bool b*)
     | Call (Builtin (BiLE, _), [Ident (l,_); CInt r], _)
     | Call (Builtin (BiGE, _), [CInt       r; Ident (l,_)], _) ->
         let name = MyIdent.to_string l in
@@ -397,7 +399,8 @@ let hornize api exprs =
 
     | Call (Builtin (BiEq, _), [l; r], _) ->
         (* TODO: bubbling up of result from calls of orelational symbols *)
-        assert false
+        VHC.F.eq (helper_term l) (helper_term r)
+
 
     (* (f arg arg2 = N) *)
     | Call (Builtin (BiEq, _), [Call (LI (_,id,_), args, _); CInt r as rhs ], _) ->
@@ -420,7 +423,8 @@ let hornize api exprs =
         VHC.(T.minus (helper_term l) (helper_term r))
     | Call (Builtin (BiPlus, _), [l; r], _) ->
         VHC.(T.plus  (helper_term l) (helper_term r))
-
+    | Call (LI (_,id,_), args, _) ->
+        VHC.T.call_uf (MyIdent.to_string id) (List.map args ~f:helper_term)
     | _ ->
         fprintf std_formatter "%a\n%!" (GT.fmt Vtypes.term) term;
         failwiths "TODO: %s %d" __FILE__ __LINE__
