@@ -142,11 +142,11 @@ module V2 : HornAPI = struct
   type post_formula = Format.formatter -> unit
   type 'a bubbled = 'a * post_formula list
 
-  type term_kind = Plain | VarNeeded
   type pre_term = Format.formatter -> unit
+  type term_kind = Plain of pre_term | VarNeeded of string * pre_term list
 
   type formula = post_formula bubbled
-  type term = (pre_term * term_kind) bubbled
+  type term = term_kind bubbled
   type sort = Format.formatter -> unit
 
   (* TODO: can Horn Clause has empty list of premises? *)
@@ -161,7 +161,7 @@ module V2 : HornAPI = struct
     (h, aux1 @ premises)
 
   let bubf f xs : formula = (f,xs)
-  let bubt t k xs : term = ((t,k),xs)
+  let bubt t xs : term    = (t,xs)
 
   let safe_term_var s = (fun fmt -> Format.fprintf fmt "%s" s)
   let safe_eq l r fmt =
@@ -170,23 +170,24 @@ module V2 : HornAPI = struct
     r fmt;
     Format.fprintf fmt ")@]"
 
-  let to_plain (((t,kind),phs): term) k = match kind with
-  | Plain     -> k (t, phs)
-  | VarNeeded ->
+  let safe_term_app name args rez : post_formula = fun fmt ->
+    Format.fprintf fmt "@[(%s@ " name;
+    List.iter args ~f:(app_space fmt);
+    rez fmt;
+    Format.fprintf fmt ")@]"
+
+  let to_plain (kind,phs) k = match kind with
+  | Plain t   -> k (t, phs)
+  | VarNeeded (t,args) ->
       let v = safe_term_var @@ next_var () in
-      let ph1 = safe_eq v t in
+      let ph1 = safe_term_app t args v in
       k (v, ph1 :: phs)
 
   let prepare_terms args =
     List.fold_right args
-      ~f:(fun ((t, kind), phs) (acc_ph, acc_pp_args) ->
-          match kind with
-          | Plain     -> (acc_ph @ phs, t :: acc_pp_args)
-          | VarNeeded ->
-              let v = safe_term_var @@ next_var () in
-              let ph1 = safe_eq v t in
-              (acc_ph @ phs @ [ph1], v :: acc_pp_args)
-          )
+      ~f:(fun (kind, phs) (acc_ph, acc_pp_args) ->
+            to_plain (kind,phs) (fun (t,phs) -> (acc_ph @ phs, t :: acc_pp_args))
+         )
       ~init:([],[])
 
 
@@ -227,7 +228,7 @@ module V2 : HornAPI = struct
   end
 
   module T = struct
-    let nof x = ((x, Plain), [])
+    let nof x = (Plain x, [])
 
     let int  n = nof (fun fmt -> Format.fprintf fmt "%d" n)
     let bool b = nof (fun fmt -> Format.fprintf fmt "%b" b)
@@ -242,31 +243,26 @@ module V2 : HornAPI = struct
           r fmt;
           Format.fprintf fmt ")@]"
         in
-        bubt ans Plain (ph1 @ ph2)
+        bubt (Plain ans) (ph1 @ ph2)
       ))
 
     let plus = binop "+"
     let minus  = binop "-"
 
-    let call_uf s args : term =
+    let call_uf name (args: term list) : term =
       let (phormulas, pps) = List.fold_right args
-        ~f:(fun ((t, kind), phs) (acc_ph, acc_pp_args) ->
-            match kind with
-            | Plain     -> (acc_ph @ phs, t :: acc_pp_args)
-            | VarNeeded ->
-                let v = safe_term_var @@ next_var () in
-                let ph1 = safe_eq v t in
-                (acc_ph @ phs @ [ph1], v :: acc_pp_args)
+        ~f:(fun t (acc_ph, acc_pp_args) ->
+              to_plain t (fun (t,phs) -> (acc_ph @ phs, t :: acc_pp_args))
             )
         ~init:([],[])
       in
       assert (Int.equal (List.length pps) (List.length args) );
-      let ans fmt =
+      (*let ans fmt =
         Format.fprintf fmt "@[(%s " s;
         List.iter pps ~f:(app_space fmt);
         Format.fprintf fmt ")@]@ "
-      in
-      bubt ans VarNeeded phormulas
+      in*)
+      bubt (VarNeeded (name, pps)) phormulas
   end
 
   let declare_rel name sorts = fun fmt ->
