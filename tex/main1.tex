@@ -46,6 +46,16 @@
 \usepackage{unicode-math}
 \setmathfont{Latin Modern Math}[Scale=MatchLowercase]
 \newcommand*{\arr}{\ensuremath{\rightarrow}}
+\newcommand{\dd}[1]{\mathrm{d}#1}
+\newcommand{\effect}[1]{\text{effect}_{#1}}
+\newcommand{\result}[1]{\text{result}_{#1}}
+
+\makeatletter
+\def\li{\@ifnextchar[{\@with}{\@without}}
+\def\@with[#1]#2{\ensuremath{ \texttt{LI}(#1, #2) }}
+\def\@without#1{\ensuremath{ \texttt{LI}(#1) }}
+\makeatother
+
 
 % Doesn't work?
 \renewcommand{\epsilon}{\ensuremath{\varepsilon}}
@@ -73,6 +83,9 @@ let find heap x ?$\sigma$? =
 
 \section{Примеры}
 \subsection{Пример из статьи}
+
+\textbf{N.B.} В статье такой язык, где функции не возвращают содержательного результата, т.е. имеют тип \mintinline{ocaml}{unit}. Иными словами, содержательное поведение функции -- это её эффект на глобальном состояии. Наверное можно немного изменить, чтобы поддержать содержательные результаты функции, но пока хз как.
+
 Используется функция $SAT(Env, Rec(f), Phormula)$, которая означает что в контексте результатов символьного исполнения $Env$ после запуска функции $f$ не случается $Assert(Phormula)$, иными словами, после исполнения $f$ на произвольных аргументах формула не выполнима.
 
 Там есть типа алгоритм
@@ -168,7 +181,7 @@ let encoded_fib ?$\{ n_{1003}\ \mapsto\ n_{1003}\}$? =
 % ?$\forall n . (n \geqslant 1) \Rightarrow$? (find_defined ?$\varepsilon$?  ?$n$? WTF) ?$\geqslant n$?
 % \end{minted}
 
-\subsection{Фибоначчи императивный}
+\subsection{Фибоначчи императивный (попытка 1)}
 \begin{minted}{ocaml}  
 let a = ref 0
 let b = ref 0
@@ -187,6 +200,9 @@ let fib ndx =
   b := 1;
   loop ndx;
   !b
+
+[@@@assert (forall x (fib m >= m))]
+
 \end{minted}
 % Может для полноты ещё написать для a и b
 После символьного исполнения $loop_{1635}$ и упрощения $a \neq b \wedge c \neq a \wedge c \neq b$
@@ -194,7 +210,7 @@ let fib ndx =
 effect_of(?$loop_{1635}$?) = HMerge 
   [ (?$n_{1636} \leqslant 1$?, ?$\varepsilon$?)
   ; (?$n_{1636} > 1$?,
-      [ (?$b_{1634} \mapsto (a_{1002} + b_{1634})$?)
+      [ (?$b_{1634} \mapsto (a_{1002} + b_{1634})$?) (* write LIs here *)
       ; (?$c_{1637} \mapsto (a_{1002} + b_{1634})$?)
       ; (?$a_{1002} \mapsto b_{1634}$?)          
       ] ?$\circ$? (RecApp ?$loop_{1635}$? ?$\{n_{1636} \mapsto n_{1636} - 1\}$?)
@@ -218,7 +234,7 @@ result_of(?$fib_{1638}$?) = ?$b_{1634}$?
 ?$\forall n . (n \geqslant 1) \Rightarrow$? (Call (Ident ?$fib_{1638}$?) ?$\{n_{1003} \mapsto ndx_{1639}\}$?) ?$\geqslant n$?
 \end{minted}
 
-В терминах функции SAT: $SAT(Body, Rec(loop_{1635}), b_{1638} \leqslant n_{1003})$. Другими словами, после выполнения функции $loop_{1635}$ на куче $\tau_0=\{a\mapsto 1, b\mapsto 1, ndx\mapsto n\}$ формула $b_{1638} \leqslant n_{1003}$ будет невыполнима.
+В терминах функции SAT: $SAT(Body, Rec(loop_{1635}), b_{1638} \leqslant n_{1003})$. Другими словами, после выполнения функции $loop_{1635}$  на куче $\tau_0=\{a\mapsto 1, b\mapsto 1, ndx\mapsto n\}$ (в ней закодирован в том числе аргумент) формула $b_{1638} \leqslant n_{1003}$ будет невыполнима.
 
 Поехали. Нужно проверять $g = (Rec(loop)\bullet LI(\varepsilon, b) > n)$.
 
@@ -226,9 +242,116 @@ result_of(?$fib_{1638}$?) = ?$b_{1634}$?
 
 Вводим find: $find(Rec(loop), b, \tau_0) > n$.
 
-Порождаем специализацию $find_{loop}\ \tau\ x = ...$ и получаем формулу $find_{loop}\  \tau_0\ b > n$.
+Порождаем специализацию $find_{loop}\ \tau\ x = ...$ и получаем формулу $$
+find_{loop}\  \tau_0\ b > n
+$$
+$$
+\tau_0=\{a\mapsto 1, b\mapsto 1, ndx\mapsto n\}
+$$
 
-Теперь надо специализровать тело функции $loop$. 
+Теперь надо специализировать тело функции $loop$...
+
+
+
+\subsection{Фибоначчи императивный (попытка 2)}
+\begin{minted}{ocaml}  
+let a = ref 0
+let b = ref 0
+
+let rec loop n = 
+  if n <= 1
+  then ()
+  else 
+    let c  = !a + !b in 
+    let () = a := !b in
+    b := c;
+    loop (n-1) 
+ 
+let fib ndx = 
+  a := 1;
+  b := 1;
+  loop ndx;
+  !b
+
+[@@@assert (forall x (fib m >= m))]
+
+\end{minted}
+% Может для полноты ещё написать для a и b
+После символьного исполнения $loop_{1635}$ и упрощения $a \neq b \wedge c \neq a \wedge c \neq b$
+
+
+\begin{equation}
+\sigma_0 = \begin{cases}
+a \mapsto 1\\ 
+b \mapsto 1\\ 
+b \mapsto LI(\varepsilon, ndx)
+\end{cases}
+\end{equation}
+
+\begin{equation}
+\effect{fib} = \sigma_0 \circ loop
+\end{equation}
+
+\begin{equation}
+\effect{loop} = Merge \begin{cases}
+LI(\sigma,n) \leq \sigma\\
+LI(\sigma,n) > \sigma \circ loop
+\end{cases}
+\end{equation}
+
+\begin{equation}
+\sigma = \begin{cases}
+c \ \mapsto \ \li{a} + \li{b} \\ 
+a \ \mapsto \ \li{b} \\ 
+b \ \mapsto \ \li{a} + \li{b} \\ 
+n \ \mapsto \ \li{n} -1
+\end{cases}
+\end{equation}
+
+\begin{minted}[mathescape, escapeinside=??]{ocaml}
+effect_of(?$loop_{1635}$?) = HMerge 
+  [ (?$n_{1636} \leqslant 1$?, ?$\varepsilon$?)
+  ; (?$n_{1636} > 1$?,
+      [ (?$b_{1634} \mapsto (a_{1002} + b_{1634})$?) (* write LIs here *)
+      ; (?$c_{1637} \mapsto (a_{1002} + b_{1634})$?)
+      ; (?$a_{1002} \mapsto b_{1634}$?)          
+      ] ?$\circ$? (RecApp ?$loop_{1635}$? ?$\{n_{1636} \mapsto n_{1636} - 1\}$?)
+    )
+  ]
+result_of(?$loop_{1635}$?) = Union 
+  [ ( ?$n_{1636} \leqslant$? 1, Unit)     
+  ; ( ?$n_{1636} >$? 1,
+      Call (Ident ?$loop_{1635}$?) ?$\{n_{1003} \mapsto (n_{1003} - 1)\}$?) )
+  ]
+\end{minted}
+После символьного исполнения $fib_{1638}$
+\begin{minted}[mathescape, escapeinside=??]{ocaml}
+effect_of(?$fib_{1638}$?) = 
+  ?$\{ b_{1634} \mapsto 1;\quad a_{1002} \mapsto 1\} \ \circ$? (RecApp (Ident ?$ loop_{1635}) \ \{ n_{1636} \mapsto ndx_{1639} \}$?)
+result_of(?$fib_{1638}$?) = ?$b_{1634}$? 
+\end{minted}
+
+Теперь свойство, от которого будем доказывать: 
+\begin{minted}[mathescape, escapeinside=??]{ocaml}
+?$\forall n . (n \geqslant 1) \Rightarrow$? (Call (Ident ?$fib_{1638}$?) ?$\{n_{1003} \mapsto ndx_{1639}\}$?) ?$\geqslant n$?
+\end{minted}
+
+В терминах функции SAT: $SAT(Body, Rec(loop_{1635}), b_{1638} \leqslant n_{1003})$. Другими словами, после выполнения функции $loop_{1635}$  на куче $\tau_0=\{a\mapsto 1, b\mapsto 1, ndx\mapsto n\}$ (в ней закодирован в том числе аргумент) формула $b_{1638} \leqslant n_{1003}$ будет невыполнима.
+
+Поехали. Нужно проверять $g = (Rec(loop)\bullet LI(\varepsilon, b) > n)$.
+
+Пихаем композицию внутрь:  $(LI(Rec(loop), b) > n)$.
+
+Вводим find: $find(Rec(loop), b, \tau_0) > n$.
+
+Порождаем специализацию $find_{loop}\ \tau\ x = ...$ и получаем формулу $$
+find_{loop}\  \tau_0\ b > n
+$$
+$$
+\tau_0=\{a\mapsto 1, b\mapsto 1, ndx\mapsto n\}
+$$
+
+Теперь надо специализировать тело функции $loop$. 
 \begin{center}
 	$find()$
 \end{center}
@@ -236,11 +359,8 @@ result_of(?$fib_{1638}$?) = ?$b_{1634}$?
 
 
 \begin{minted}[mathescape, escapeinside=??]{ocaml}
-
-
 encode (Call (Ident ?$fib_{1638}$?)) ?$\{n_{1003}\ \mapsto n\}$? = 
 encode (   result_of ?$fib_{1638}$?) ?$\{n_{1003}\ \mapsto n\}$?
-
 
 let encoded_fib ?$\{ n_{1003}\ \mapsto\ n_{1003}\}$? = 
     if ?$n_{1003} \leqslant 2$? then ?$1$?
@@ -248,4 +368,5 @@ let encoded_fib ?$\{ n_{1003}\ \mapsto\ n_{1003}\}$? =
         encoded_fib ?$\{ n_{1003}\ \mapsto\ (n_{1003} - 1)\}$? +  
         encoded_fib ?$\{ n_{1003}\ \mapsto\ (n_{1003} - 2)\}$?
 \end{minted}
+
 \end{document}
