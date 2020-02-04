@@ -49,6 +49,7 @@
 \newcommand{\dd}[1]{\mathrm{d}#1}
 \newcommand{\effect}[1]{\text{effect}_{#1}}
 \newcommand{\result}[1]{\text{result}_{#1}}
+\newcommand{\find}[3]{\ensuremath{\texttt{find}(#1, #2,#3)}}
 
 \makeatletter
 \def\li{\@ifnextchar[{\@with}{\@without}}
@@ -273,7 +274,7 @@ let fib ndx =
   loop ndx;
   !b
 
-[@@@assert (forall x (fib m >= m))]
+[@@@assert (forall m (fib m >= m))]
 
 \end{minted}
 % Может для полноты ещё написать для a и b
@@ -284,7 +285,7 @@ let fib ndx =
 \sigma_0 = \begin{cases}
 a \mapsto 1\\ 
 b \mapsto 1\\ 
-b \mapsto LI(\varepsilon, ndx)
+n \mapsto \li{ndx}
 \end{cases}
 \end{equation}
 
@@ -294,8 +295,8 @@ b \mapsto LI(\varepsilon, ndx)
 
 \begin{equation}
 \effect{loop} = Merge \begin{cases}
-LI(\sigma,n) \leq \sigma\\
-LI(\sigma,n) > \sigma \circ loop
+\varepsilon& \text{если } \li{n} \leq 1 \\
+\sigma \circ loop & \text{если } \li{n} > 1 
 \end{cases}
 \end{equation}
 
@@ -307,66 +308,69 @@ b \ \mapsto \ \li{a} + \li{b} \\
 n \ \mapsto \ \li{n} -1
 \end{cases}
 \end{equation}
+Терм-результат для $fib$ -- это значение в локации $b$ после совершения над глобальных состоянием эффекта $\sigma_0$ и эффекта вызова функции $loop$\footnote{У нас тут инициализация аргумента функции склеилась с глобальным состоянием на момент вызова, но это не существенно}.
+\begin{align*}
+\result{fib} &= \li{\sigma_0\circ loop,b}\\
+\result{loop} &= \texttt{Unit}
+\end{align*}
+Теперь посмотрим на инвариант, который хотим проверить. Инициализация аргумента будет сделано просто:
+\begin{equation}
+\sigma_1 = \{ ndx \mapsto \li{m} \}
+\end{equation}
+А сам инвариант будет выглядеть как
+\begin{equation}
+\sigma_1 \circ \result{fib} \ge \li{m}
+\end{equation}
+Подставив $ \result{fib}$ и применив "дистрибутивность" получим:
+\begin{align*}
+\sigma_1 \circ \result{fib}  &\ge \li{m} \\
+\sigma_1 \circ \li{\sigma_0\circ loop,b}  &\ge \li{m} \\
+ \li{\sigma_1 \circ \sigma_0\circ loop,b}  &\ge \li{m} \\
+\end{align*}
+Преобразуем все $\li{*,*}$ в $find$ используя в качестве контекстной кучи $\tau$:
+\begin{align*}
+\find{\sigma_1 \circ \sigma_0\circ loop}{b}{\tau}  &\ge \find{\varepsilon}{m}{\tau}
+\end{align*}
+что порождает следующий OCaml код
+\begin{align*}
+\texttt{find}_{\sigma_1 \circ \sigma_0\circ loop}\;\tau\; b  &\ge \texttt{find}_{\varepsilon} \tau\; m
+\end{align*}
+В общем результирующий OCaml код будет состоять из различных специализаций функции $\texttt{find}_{heap}$ для различных куч. Самый простой случай -- специализация для пустой кучи -- делегирует работу контекстной куче
+\begin{align*}
+\texttt{find}_{\varepsilon} \tau\; x = \tau\; x
+\end{align*}
+Все сгенерированные функции первого порядка $find_{heap}$ принимают контекстную кучу и имя локации и выдают значение.
 
-\begin{minted}[mathescape, escapeinside=??]{ocaml}
-effect_of(?$loop_{1635}$?) = HMerge 
-  [ (?$n_{1636} \leqslant 1$?, ?$\varepsilon$?)
-  ; (?$n_{1636} > 1$?,
-      [ (?$b_{1634} \mapsto (a_{1002} + b_{1634})$?) (* write LIs here *)
-      ; (?$c_{1637} \mapsto (a_{1002} + b_{1634})$?)
-      ; (?$a_{1002} \mapsto b_{1634}$?)          
-      ] ?$\circ$? (RecApp ?$loop_{1635}$? ?$\{n_{1636} \mapsto n_{1636} - 1\}$?)
-    )
-  ]
-result_of(?$loop_{1635}$?) = Union 
-  [ ( ?$n_{1636} \leqslant$? 1, Unit)     
-  ; ( ?$n_{1636} >$? 1,
-      Call (Ident ?$loop_{1635}$?) ?$\{n_{1003} \mapsto (n_{1003} - 1)\}$?) )
-  ]
-\end{minted}
-После символьного исполнения $fib_{1638}$
-\begin{minted}[mathescape, escapeinside=??]{ocaml}
-effect_of(?$fib_{1638}$?) = 
-  ?$\{ b_{1634} \mapsto 1;\quad a_{1002} \mapsto 1\} \ \circ$? (RecApp (Ident ?$ loop_{1635}) \ \{ n_{1636} \mapsto ndx_{1639} \}$?)
-result_of(?$fib_{1638}$?) = ?$b_{1634}$? 
-\end{minted}
+Предъявим специализации для более сложных случаев.
+\begin{align*}
+\texttt{find}_{\sigma_1 \circ \sigma_0\circ loop}\; \tau \; x  &= 
+\texttt{find}_{loop}\; (\texttt{find}_{\sigma_1 \circ \sigma_0} \tau) \; x\\
+\texttt{find}_{\sigma_1 \circ \sigma_0}\; \tau \; x  &= 
+\texttt{find}_{\sigma_0}\; (\texttt{find}_{\sigma_1} \tau) \; x
+\end{align*}
 
-Теперь свойство, от которого будем доказывать: 
-\begin{minted}[mathescape, escapeinside=??]{ocaml}
-?$\forall n . (n \geqslant 1) \Rightarrow$? (Call (Ident ?$fib_{1638}$?) ?$\{n_{1003} \mapsto ndx_{1639}\}$?) ?$\geqslant n$?
-\end{minted}
+Специализации $find$ для конкретных куч почти повторяют структуру соответствующих конкретных куч
+\begin{align*}
+\texttt{find}_{\sigma_0}\; \tau \; x  = \begin{cases}
+1& \text{если } x \sim "a"\\
+1& \text{если } x \sim "b"\\
+\texttt{find}_{\varepsilon}\; \tau\; ndx& \text{если } x \sim "n"\\
+\tau\  x& \text{иначе}
+\end{cases}\\
+\texttt{find}_{\sigma_1}\; \tau \; x  = \begin{cases}
+\texttt{find}_{\varepsilon}\; \tau\; m& \text{если } x \sim "ndx"\\
+\tau\  x& \text{иначе}
+\end{cases}
+\end{align*}
 
-В терминах функции SAT: $SAT(Body, Rec(loop_{1635}), b_{1638} \leqslant n_{1003})$. Другими словами, после выполнения функции $loop_{1635}$  на куче $\tau_0=\{a\mapsto 1, b\mapsto 1, ndx\mapsto n\}$ (в ней закодирован в том числе аргумент) формула $b_{1638} \leqslant n_{1003}$ будет невыполнима.
-
-Поехали. Нужно проверять $g = (Rec(loop)\bullet LI(\varepsilon, b) > n)$.
-
-Пихаем композицию внутрь:  $(LI(Rec(loop), b) > n)$.
-
-Вводим find: $find(Rec(loop), b, \tau_0) > n$.
-
-Порождаем специализацию $find_{loop}\ \tau\ x = ...$ и получаем формулу $$
-find_{loop}\  \tau_0\ b > n
-$$
-$$
-\tau_0=\{a\mapsto 1, b\mapsto 1, ndx\mapsto n\}
-$$
-
-Теперь надо специализировать тело функции $loop$. 
-\begin{center}
-	$find()$
-\end{center}
+\begin{align*}
+\texttt{find}_{loop}\; \tau \; x  = \begin{cases}
+\texttt{find}_{\varepsilon} \tau x & \text{если } \texttt{find}_{\varepsilon} n \le 1\\
+\texttt{find}_{loop} (\texttt{find}_{\sigma}\; \tau) x & \text{если } \texttt{find}_{\varepsilon} n > 1\\
+\texttt{raise Unreachable}& \text{иначе}
+\end{cases}
+\end{align*}
 
 
-
-\begin{minted}[mathescape, escapeinside=??]{ocaml}
-encode (Call (Ident ?$fib_{1638}$?)) ?$\{n_{1003}\ \mapsto n\}$? = 
-encode (   result_of ?$fib_{1638}$?) ?$\{n_{1003}\ \mapsto n\}$?
-
-let encoded_fib ?$\{ n_{1003}\ \mapsto\ n_{1003}\}$? = 
-    if ?$n_{1003} \leqslant 2$? then ?$1$?
-    else 
-        encoded_fib ?$\{ n_{1003}\ \mapsto\ (n_{1003} - 1)\}$? +  
-        encoded_fib ?$\{ n_{1003}\ \mapsto\ (n_{1003} - 2)\}$?
-\end{minted}
 
 \end{document}
