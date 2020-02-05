@@ -288,4 +288,76 @@ module V2 : HornAPI = struct
     )
 end
 
+type heap_index = string
 
+module type ML_API = sig
+  type program
+  type expr
+  type si
+  module E : sig
+    val gt: expr -> expr -> expr
+    val int: int -> expr
+    val ident: string -> expr
+    val app : expr -> expr -> expr
+    val find : heap_index -> expr
+  end
+  module SI : sig
+    val find : string -> (string -> string -> expr) -> si
+    val assert_: ?name:string -> string list -> expr -> si
+  end
+
+  val program : si list -> program
+  val join_programs : program list -> program
+  val pp_program : Format.formatter -> program -> unit
+end
+
+module ML : ML_API = struct
+  type expr = Format.formatter -> unit
+  type program = Format.formatter -> unit
+  type si = Format.formatter -> unit
+
+  module E = struct
+    let binop name l r : expr =
+        let ans fmt =
+          Format.fprintf fmt "@[(";
+          app_space fmt l;
+          Format.fprintf fmt "%s@ " name;
+          r fmt;
+          Format.fprintf fmt ")@]"
+        in
+        ans
+
+    let gt = binop ">"
+    let app = binop ""
+    let int n fmt = Format.fprintf fmt "%d" n
+    let ident s fmt = Format.fprintf fmt "%s" s
+    let find str_ndx fmt =
+      Format.fprintf fmt "find_%s" str_ndx
+  end
+
+  module SI = struct
+    let find name body fmt =
+      Format.fprintf fmt "@[let@ find_%s@ =@ fun " name;
+      body "tau" "x" fmt;
+      Format.fprintf fmt "@]"
+
+    let assert_ ?name vars expr fmt =
+      Format.fprintf fmt "@[let@ assert";
+      Base.Option.iter name ~f:(Format.fprintf fmt "_%s");
+      Format.fprintf fmt "@ " ;
+      List.iter vars ~f:(Format.fprintf fmt "%s@ ");
+      Format.fprintf fmt "=@ ";
+      expr fmt;
+      Format.fprintf fmt "@]"
+
+  end
+
+  let program es fmt =
+    List.iter es ~f:(fun pp -> pp fmt; Format.fprintf fmt "\n");
+    Format.fprintf fmt "%!"
+  let join_programs es fmt =
+      List.iter es ~f:(fun pp -> pp fmt; Format.fprintf fmt "\n");
+      Format.fprintf fmt "%!"
+
+  let pp_program fmt pp = pp fmt
+end

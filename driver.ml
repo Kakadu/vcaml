@@ -334,7 +334,11 @@ and process_expr (api,heap) e =
   end
   | _ -> failwith ("not implemented " ^ UntypeP.expr e)
 
+(** Extracting properties from OCaml code
+  [@@@ prop.propname (fun x y ... -> P)]
 
+  Returns [ warnings * structure_item * (propname option) ]
+  *)
 let get_properies t =
   let rgxp = Str.regexp "prop\\(\\.\\([a-zA-Z]+\\)\\)?" in
   let ans = ref [] in
@@ -480,5 +484,7 @@ let work { Misc.sourcefile = filename } (t: Typedtree.structure) =
     | _ -> failwiths "Should not happen: property representation wrong (%s %d)" __FILE__ __LINE__
   ) in
   (* REMARK: we use _old_ API here *)
-  let () = hornize api ty_prop_exprs in
+  (*  let () = hornize api ty_prop_exprs in*)
+  Format.printf "+++++ camlizing\n%!";
+  let () = ToCaml.exec api ty_prop_exprs in
   ()

@@ -16,5 +16,4 @@ let fib ndx =
   loop ndx;
   !b
 
-[@@@ prop      (fun n -> fib n > n)]
-[@@@ prop.asdf (fun n -> fib n > n)]
+[@@@ prop.main (fun n -> fib n > n)]

@@ -250,8 +250,8 @@ class ['extra_term] my_fmt_term
       match h with
       | None -> Format.fprintf fmt "@[\"%a\"@]" (GT.fmt MyIdent.t) ident
       | Some h ->
-          (* Format.fprintf fmt "LI@ @[(@,%a,@,@ \"%a\"@,)@]" for_heap h (GT.fmt MyIdent.t) ident *)
-          Format.fprintf fmt "LI@ @[(@,...,@,@ \"%a\"@,)@]"  (GT.fmt MyIdent.t) ident
+           Format.fprintf fmt "LI@ @[(@,%a,@,@ \"%a\"@,)@]" for_heap h (GT.fmt MyIdent.t) ident
+          (*Format.fprintf fmt "LI@ @[(@,...,@,@ \"%a\"@,)@]"  (GT.fmt MyIdent.t) ident*)
     method! c_Union fmt _ ps =
       (* TODO: normal printing *)
       Format.fprintf fmt "@[(Union@ ";

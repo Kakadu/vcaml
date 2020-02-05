@@ -35,3 +35,28 @@ end
 
 module V1: HornAPI
 module V2: HornAPI
+
+type heap_index = string
+
+module type ML_API = sig
+  type program
+  type expr
+  type si
+  module E : sig
+    val gt: expr -> expr -> expr
+    val int: int -> expr
+    val ident: string -> expr
+    val app : expr -> expr -> expr
+    val find : heap_index -> expr
+  end
+  module SI : sig
+    val find : heap_index -> (string -> string -> expr) -> si
+    val assert_: ?name:string -> string list -> expr -> si
+  end
+
+  val program : si list -> program
+  val join_programs : program list -> program
+  val pp_program : Format.formatter -> program -> unit
+end
+
+module ML : ML_API
