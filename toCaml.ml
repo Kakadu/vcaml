@@ -3,10 +3,10 @@ open Typedtree
 open Vtypes
 open Vutils
 
-type heap_desc = int
+type heap_desc = string
 let next_heap_desc =
   let last = ref 0 in
-  (fun () -> incr last; !last)
+  (fun () -> incr last; string_of_int !last)
 
 let exec api texprs =
   let open Format in
@@ -35,8 +35,8 @@ let exec api texprs =
           let new_desc = next_heap_desc () in
           Queue.enqueue q (new_desc, heap);
           VHC.E.(
-            app
-              (app (find (string_of_int new_desc))
+            app2
+              (app2 (find new_desc)
                   (ident "tau"))
               (ident "x")
           )
@@ -55,6 +55,19 @@ let exec api texprs =
       match Queue.dequeue q with
       | None -> VHC.program acc
       | Some (desc, h) -> match h with
+      | HCmps (l,r) ->
+          let new_descl = next_heap_desc () in
+          let new_descr = next_heap_desc () in
+          Queue.enqueue q (new_descl, l);
+          Queue.enqueue q (new_descr, r);
+          let si =
+            VHC.SI.find desc (fun tau x ->
+              VHC.E.(app (find new_descl)
+                      [ app2 (find new_descr) (ident tau)
+                      ; ident x
+                      ]))
+          in
+          work_queue (si :: acc)
       | HDefined xs ->
           Format.printf "%a\n\n%!" Vtypes.fmt_heap h;
           failwiths "TODO: %s %d" __FILE__ __LINE__

@@ -2,4 +2,11 @@
 *.aux
 *.log
 *.synctex.gz
+/*.out
+/*.pyg
+/*.toc
+/*.snm
+/*.bbl
+/*.blg
+
 

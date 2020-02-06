@@ -298,7 +298,8 @@ module type ML_API = sig
     val gt: expr -> expr -> expr
     val int: int -> expr
     val ident: string -> expr
-    val app : expr -> expr -> expr
+    val app2 : expr -> expr -> expr
+    val app  : expr -> expr list -> expr
     val find : heap_index -> expr
   end
   module SI : sig
@@ -328,7 +329,10 @@ module ML : ML_API = struct
         ans
 
     let gt = binop ">"
-    let app = binop ""
+    let app2 = binop ""
+    let app f = function
+      | [] -> f
+      | xs -> List.fold_left xs ~init:f ~f:app2
     let int n fmt = Format.fprintf fmt "%d" n
     let ident s fmt = Format.fprintf fmt "%s" s
     let find str_ndx fmt =

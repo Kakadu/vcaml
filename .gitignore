@@ -1,8 +1,7 @@
 /node_modules
 _build
 
-/.merlin
-/lib/.merlin
+.merlin
 /vcaml.install
 
 /qtc-vcaml.*

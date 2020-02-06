@@ -46,7 +46,8 @@ module type ML_API = sig
     val gt: expr -> expr -> expr
     val int: int -> expr
     val ident: string -> expr
-    val app : expr -> expr -> expr
+    val app2 : expr -> expr -> expr
+    val app : expr -> expr list -> expr
     val find : heap_index -> expr
   end
   module SI : sig
