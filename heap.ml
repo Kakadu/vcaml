@@ -149,7 +149,10 @@ let his_empty = function
   | _ -> false
 let hempty : heap = HDefined []
 let hdefined xs = HDefined xs
-let hsingle name el : t = hdefined [(name,el)]
+let rec hsingle name el : t =
+  match el with
+  | Union gs -> HMerge (List.map gs ~f:(fun (gu,term) -> (gu, hsingle name term)))
+  | _ -> hdefined [(name,el)]
 let hmerge2 g1 h1 g2 h2 = HMerge [(g1,h1); (g2,h2)]
 let hmerge_list xs = HMerge xs
 let hcall f x = HCall (f,x)
@@ -263,7 +266,8 @@ and read_ident_defined hs ident typ =
     let neg = pf_conj_list @@ List.map may_equal ~f:(fun (k,_) -> pf_not @@ pf_eq k ident) in
     union @@ (neg, li ident typ) :: positives
 
-and write_ident_defined hs ident (newval: term) : defined_heap =
+
+and write_ident_defined (hs: defined_heap) ident (newval: term) : defined_heap =
   (* Format.printf "write_ident_defined:\n\theap keys = %a\n%!"
     (Format.pp_print_list ~pp_sep:(fun fmt () -> Format.fprintf fmt " ") (fun fmt (i,_) -> GT.fmt MyIdent.t fmt i)) hs;
   Format.printf "\tident is '%a'\n%!" (GT.fmt MyIdent.t) ident;
@@ -320,32 +324,35 @@ and read_generalized heap ident typ =
   | _ -> li ~heap ident typ
 
 and hcmps : t -> t -> t = fun l r ->
-  (* Format.printf "calling hcmps of\n%!";
-   * Format.printf "\t%s\n%!" (pp_heap () l);
-   * Format.printf "\t%s\n%!" (pp_heap () r); *)
-  match (l,r) with
-  | (HDefined [], h) -> h
-  | (h, HDefined []) -> h
-  | (HDefined xs, HDefined ys) ->
-      let ans  = HDefined (hcmps_defined xs ys) in
-      (* Format.printf "\t\t\t\t%a\n%!" (GT.fmt heap) ans; *)
-      ans
-  | (HDefined xs, HMerge phs) ->
-      hmerge_list @@ List.map phs ~f:(fun (pf,h) ->
-        ( simplify_pf @@ (GT.gmap Vtypes.pf) (hdot_defined xs) pf
-        , hcmps l h )
-      )
-  | (HDefined _ as x, HCmps (HDefined _ as y, z)) -> hcmps (hcmps x y) z
-  | (_, HCmps(_,_))
-  | (HCmps(_,_), _) -> HCmps (l,r)
-  | h, HWrite (h2, id, v) -> HWrite (hcmps h h2, id, hdot_generalized h v)
-  | HWrite (h, id, v), HMerge xs -> HCmps (l,r)
-  | HMerge _, HMerge _
-  | _,HCall(_,_)
-  | HCall (_,_),_ -> HCmps (l,r)
-  | HMerge _, HDefined _ -> HCmps (l,r)
-  | HWrite _, HDefined _ -> HCmps (l,r)
-
+  let ans =
+    match (l,r) with
+    | (HDefined [], h) -> h
+    | (h, HDefined []) -> h
+    | (HDefined xs, HDefined ys) ->
+        let ans  = HDefined (hcmps_defined xs ys) in
+        (* Format.printf "\t\t\t\t%a\n%!" (GT.fmt heap) ans; *)
+        ans
+    | (HDefined xs, HMerge phs) ->
+        hmerge_list @@ List.map phs ~f:(fun (pf,h) ->
+          ( simplify_pf @@ (GT.gmap Vtypes.pf) (hdot_defined xs) pf
+          , hcmps l h )
+        )
+    | (HDefined _ as x, HCmps (HDefined _ as y, z)) -> hcmps (hcmps x y) z
+    | (_, HCmps(_,_))
+    | (HCmps(_,_), _) -> HCmps (l,r)
+    | h, HWrite (h2, id, v) -> HWrite (hcmps h h2, id, hdot_generalized h v)
+    | HWrite (h, id, v), HMerge xs -> HCmps (l,r)
+    | HMerge _, HMerge _
+    | _,HCall(_,_)
+    | HCall (_,_),_ -> HCmps (l,r)
+    | HMerge _, HDefined _ -> HCmps (l,r)
+    | HWrite _, HDefined _ -> HCmps (l,r)
+  in
+  Format.printf "calling hcmps of\n%!";
+  Format.fprintf Format.std_formatter "\t%s\n%!" (pp_heap () l);
+  Format.printf "\t%s\n%!" (pp_heap () r);
+  Format.printf "\tresult = %s\n%!" (pp_heap () ans);
+  ans
 
 let hdot heap term =
   match heap with
