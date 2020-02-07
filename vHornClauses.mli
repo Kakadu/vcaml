@@ -37,6 +37,7 @@ module V1: HornAPI
 module V2: HornAPI
 
 type heap_index = string
+type ident = string
 
 module type ML_API = sig
   type program
@@ -49,6 +50,7 @@ module type ML_API = sig
     val app2 : expr -> expr -> expr
     val app : expr -> expr list -> expr
     val find : heap_index -> expr
+    val switch_ident : ident -> (ident * expr) list -> expr
   end
   module SI : sig
     val find : heap_index -> (string -> string -> expr) -> si

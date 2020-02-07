@@ -8,6 +8,28 @@ let next_heap_desc =
   let last = ref 0 in
   (fun () -> incr last; string_of_int !last)
 
+type heap_path =
+  | HPIdent of MyIdent.t
+  | HPCmps of heap_path * heap_path [@@deriving gt ~options:{compare}]
+
+module Queue_of_finds : sig
+  type t
+end = struct
+  type comparator_witness
+  module C = struct
+    type t = heap_path
+    type comparator_witness
+    let comparator =
+      { compare = (fun a b -> GT.compare heap_path a b)
+      ; sexp_of_t = (fun _ -> failwith "not implemented")
+      }
+  end
+  type t =
+    { q : (heap_desc * heap_path * Vtypes.heap) Queue.t
+    ; memo : int
+    }
+  let create () : t = Queue.init 0 ~f:(fun _ -> assert false)
+end
 let exec api texprs =
   let open Format in
   let module VHC = VHornClauses.ML in
@@ -28,7 +50,7 @@ let exec api texprs =
     let (_: (heap_desc * Vtypes.heap) Queue.t) = q in
     let (_: string option) = assert_name in
 
-    let rec helper term = match term with
+    let rec do_term term = match term with
       | CInt n           -> VHC.E.int n
       | LI (None, id, _) -> VHC.E.ident (MyIdent.to_string id)
       | LI (Some (HCmps (l,r) as heap), id, _) ->
@@ -45,12 +67,11 @@ let exec api texprs =
           assert false
       | Call (Builtin (BiGT, _), [a; b], _)
       | Call (Builtin (BiLT, _), [b; a], _) ->
-          VHC.E.gt (helper a) (helper b)
+          VHC.E.gt (do_term a) (do_term b)
       | _ ->
           Format.printf "%a\n\n%!" Vtypes.fmt_term term;
           failwiths "TODO: %s %d" __FILE__ __LINE__
     in
-    let result_term  = helper root_prop in
     let rec work_queue acc =
       match Queue.dequeue q with
       | None -> VHC.program acc
@@ -69,13 +90,47 @@ let exec api texprs =
           in
           work_queue (si :: acc)
       | HDefined xs ->
-          Format.printf "%a\n\n%!" Vtypes.fmt_heap h;
-          failwiths "TODO: %s %d" __FILE__ __LINE__
+          let si =
+            VHC.SI.find desc (fun tau x ->
+              VHC.E.(switch_ident x @@
+                List.map xs ~f:(fun (id,t) -> (Ident.name id, do_term t))
+              ))
+          in
+          work_queue (si :: acc)
+          (*
+      | HCall (Ident (ident,_), [arg]) -> begin
+          match Heap.Api.find_ident_exn api ident with
+          | exception Not_found ->
+              Format.printf "%a\n\n%!" Vtypes.fmt_heap h;
+              failwiths "TODO: %s %d" __FILE__ __LINE__
+          | (_, Lambda { lam_argname=Some arg_ident; lam_body }) ->
+              let new_descr = next_heap_desc () in
+              let arg_heap = Heap.hsingle arg_ident arg in
+              Queue.enqueue q (new_descr, arg_heap);
+              Format.printf "%a\n\n%!" Vtypes.fmt_heap h;
+              Format.printf "%a\n\n%!" Vtypes.fmt_term lam_body;
+              failwiths "TODO: %s %d" __FILE__ __LINE__
+        end
+        *)
+      | HCall (LI (None,ident,_), [arg]) -> begin
+          match Heap.Api.find_ident_exn api ident with
+          | exception Not_found ->
+              Format.printf "%a\n\n%!" Vtypes.fmt_heap h;
+              failwiths "TODO: %s %d" __FILE__ __LINE__
+          | (_, Lambda { lam_argname=Some arg_ident; lam_body }) ->
+              let new_descr = next_heap_desc () in
+              let arg_heap = Heap.hsingle arg_ident arg in
+              Queue.enqueue q (new_descr, arg_heap);
+              Format.printf "%a\n\n%!" Vtypes.fmt_heap h;
+              Format.printf "%a\n\n%!" Vtypes.fmt_term lam_body;
+              failwiths "TODO: %s %d" __FILE__ __LINE__
+        end
       | _ ->
           Format.printf "%a\n\n%!" Vtypes.fmt_heap h;
           failwiths "TODO: %s %d" __FILE__ __LINE__
     in
 
+    let result_term  = do_term root_prop in
     VHC.join_programs
       [ work_queue []
       ; VHC.program

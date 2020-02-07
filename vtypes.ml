@@ -18,6 +18,11 @@ module MyIdent = struct
               method fmt fmt o = Format.fprintf fmt "%s" (Ident.unique_name o)
               method gmap (x: t) = x
               method eq = equal
+              method compare x y =
+                let ans = Ident.compare x y in
+                if ans < 0 then GT.LT else
+                if ans = 0 then GT.EQ else
+                GT.GT
           end
           ; GT.fix = (fun _ -> assert false)
           }
@@ -120,7 +125,7 @@ and term =
               ; lam_typ    : MyTypes.type_expr
               }
 
-and t =
+and heap =
   (** Heap should be a mapping from terms to terms (array access, for example)
     * but for fibonacci it doesn't matter
     *)
@@ -134,7 +139,7 @@ and t =
   (* | HMutation of t * t  *)
 
 
-and heap = t
+and t = heap
 [@@deriving gt ~options:{ fmt; eq; gmap }]
 
 
@@ -254,18 +259,11 @@ class ['extra_term] my_fmt_term
           (*Format.fprintf fmt "LI@ @[(@,...,@,@ \"%a\"@,)@]"  (GT.fmt MyIdent.t) ident*)
     method! c_Union fmt _ ps =
       (* TODO: normal printing *)
-      Format.fprintf fmt "@[(Union@ ";
+      Format.fprintf fmt "@[<hv>(Union@ ";
       GT.list.GT.plugins#fmt (fun fmt (l,r) ->
         Format.fprintf fmt "@[⦗@,@[%a@], @[%a@]@,⦘@]" (GT.fmt pf fself_term) l fself_term r
       ) fmt ps;
-      (* List.iter ps ~f:(fun (l,r) ->
-        Format.fprintf fmt "@[; @[⦗@,@[%a@], @[%a@]@,⦘@]@]" for_pf l fself_term r
-      ); *)
       Format.fprintf fmt ")@]";
-      (* Format.fprintf fmt "Union@ @[(@,%a@,)@]"
-        (GT.fmt GT.list
-            (fun fmt (l,r) -> Format.fprintf fmt "(%a,%a)" for_pf l fself_term r)
-        ) _x__088_; *)
       ()
     method c_Call fmt _ f args _typ =
       match f with

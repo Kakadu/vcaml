@@ -289,6 +289,7 @@ module V2 : HornAPI = struct
 end
 
 type heap_index = string
+type ident = string
 
 module type ML_API = sig
   type program
@@ -301,6 +302,7 @@ module type ML_API = sig
     val app2 : expr -> expr -> expr
     val app  : expr -> expr list -> expr
     val find : heap_index -> expr
+    val switch_ident : ident -> (ident * expr) list -> expr
   end
   module SI : sig
     val find : string -> (string -> string -> expr) -> si
@@ -337,6 +339,17 @@ module ML : ML_API = struct
     let ident s fmt = Format.fprintf fmt "%s" s
     let find str_ndx fmt =
       Format.fprintf fmt "find_%s" str_ndx
+
+    let switch_ident scru cases fmt =
+      Format.fprintf fmt "@[(";
+      List.iter cases ~f:(fun (id,e) ->
+        Format.fprintf fmt "if %s = %s@ "
+          scru id;
+        Format.fprintf fmt "then@ ";
+        e fmt;
+        Format.fprintf fmt "@ else@ ";
+      );
+      Format.fprintf fmt "else failwith \"unreachable\")@]";
   end
 
   module SI = struct
