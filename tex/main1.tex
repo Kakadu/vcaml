@@ -182,6 +182,7 @@ let encoded_fib ?$\{ n_{1003}\ \mapsto\ n_{1003}\}$? =
 % ?$\forall n . (n \geqslant 1) \Rightarrow$? (find_defined ?$\varepsilon$?  ?$n$? WTF) ?$\geqslant n$?
 % \end{minted}
 
+\begin{comment}
 \subsection{Фибоначчи императивный (попытка 1)}
 \begin{minted}{ocaml}  
 let a = ref 0
@@ -252,7 +253,7 @@ $$
 
 Теперь надо специализировать тело функции $loop$...
 
-
+\end{comment}
 
 \subsection{Фибоначчи императивный (попытка 2)}
 \begin{minted}{ocaml}  
@@ -322,35 +323,35 @@ n \ \mapsto \ \li{n} -1
 \sigma_1 \circ \result{fib} \ge \li{m}
 \end{equation}
 Подставив $ \result{fib}$ и применив "дистрибутивность" получим:
-\begin{align*}
+\begin{align}
 \sigma_1 \circ \result{fib}  &\ge \li{m} \\
 \sigma_1 \circ \li{\sigma_0\circ loop,b}  &\ge \li{m} \\
  \li{\sigma_1 \circ \sigma_0\circ loop,b}  &\ge \li{m} \\
-\end{align*}
+\end{align}
 Преобразуем все $\li{*,*}$ в $find$ используя в качестве контекстной кучи $\tau$:
-\begin{align*}
+\begin{align}
 \find{\sigma_1 \circ \sigma_0\circ loop}{b}{\tau}  &\ge \find{\varepsilon}{m}{\tau}
-\end{align*}
+\end{align}
 что порождает следующий OCaml код
-\begin{align*}
+\begin{align}
 \texttt{find}_{\sigma_1 \circ \sigma_0\circ loop}\;\tau\; b  &\ge \texttt{find}_{\varepsilon} \tau\; m
-\end{align*}
+\end{align}
 В общем результирующий OCaml код будет состоять из различных специализаций функции $\texttt{find}_{heap}$ для различных куч. Самый простой случай -- специализация для пустой кучи -- делегирует работу контекстной куче
-\begin{align*}
+\begin{align}
 \texttt{find}_{\varepsilon} \tau\; x = \tau\; x
-\end{align*}
+\end{align}
 Все сгенерированные функции первого порядка $find_{heap}$ принимают контекстную кучу и имя локации и выдают значение.
 
 Предъявим специализации для более сложных случаев.
-\begin{align*}
+\begin{align}
 \texttt{find}_{\sigma_1 \circ \sigma_0\circ loop}\; \tau \; x  &= 
 \texttt{find}_{loop}\; (\texttt{find}_{\sigma_1 \circ \sigma_0} \tau) \; x\\
 \texttt{find}_{\sigma_1 \circ \sigma_0}\; \tau \; x  &= 
 \texttt{find}_{\sigma_0}\; (\texttt{find}_{\sigma_1} \tau) \; x
-\end{align*}
+\end{align}
 
 Специализации $find$ для конкретных куч почти повторяют структуру соответствующих конкретных куч
-\begin{align*}
+\begin{align}
 \texttt{find}_{\sigma_0}\; \tau \; x  = \begin{cases}
 1& \text{если } x \sim "a"\\
 1& \text{если } x \sim "b"\\
@@ -361,15 +362,15 @@ n \ \mapsto \ \li{n} -1
 \texttt{find}_{\varepsilon}\; \tau\; m& \text{если } x \sim "ndx"\\
 \tau\  x& \text{иначе}
 \end{cases}
-\end{align*}
+\end{align}
 
-\begin{align*}
+\begin{align}
 \texttt{find}_{loop}\; \tau \; x  = \begin{cases}
 \texttt{find}_{\varepsilon} \tau x & \text{если } \texttt{find}_{\varepsilon} n \le 1\\
 \texttt{find}_{loop} (\texttt{find}_{\sigma}\; \tau) x & \text{если } \texttt{find}_{\varepsilon} n > 1\\
 \texttt{raise Unreachable}& \text{иначе}
 \end{cases}
-\end{align*}
+\end{align}
 
 
 

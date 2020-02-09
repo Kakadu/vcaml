@@ -10,26 +10,57 @@ let next_heap_desc =
 
 type heap_path =
   | HPIdent of MyIdent.t
+  (* Identifier of function *)
+  | HPDefined of Vtypes.defined_heap
+  | HPArbitrary of Vtypes.heap
   | HPCmps of heap_path * heap_path [@@deriving gt ~options:{compare}]
 
-module Queue_of_finds : sig
+(** Queue of scheduled items for `find_sufix` generation *)
+module QoF : sig
   type t
+  type item = (heap_desc * heap_path * Vtypes.heap)
+  val create: unit -> t
+  val enqueue: t -> item -> unit
+  val dequeue: t -> item option
+  val dequeue_exn: t -> item
 end = struct
-  type comparator_witness
-  module C = struct
-    type t = heap_path
-    type comparator_witness
-    let comparator =
-      { compare = (fun a b -> GT.compare heap_path a b)
-      ; sexp_of_t = (fun _ -> failwith "not implemented")
-      }
+  module X = struct
+      type t = heap_path
+      include Comparator.Make(struct
+        type t = heap_path
+        let compare a b = match GT.compare heap_path a b with
+        | GT.EQ -> 0
+        | GT.GT -> 1
+        | GT.LT -> -1
+        let sexp_of_t _ = failwith "not implemented"
+      end)
   end
+
+  type item = (heap_desc * heap_path * Vtypes.heap)
   type t =
-    { q : (heap_desc * heap_path * Vtypes.heap) Queue.t
-    ; memo : int
+    { q : item Queue.t
+    ; memo : (heap_path, X.comparator_witness) Set.t
     }
-  let create () : t = Queue.init 0 ~f:(fun _ -> assert false)
+  let create () : t =
+    let c : (module Comparator.S with
+             type comparator_witness = X.comparator_witness and
+             type t = heap_path)
+      = (module X)
+    in
+    { q = Queue.init 0 ~f:(fun _ -> assert false)
+    ; memo = Set.empty c
+    }
+
+  let enqueue { q; memo } ((desc, path, heap) as next) =
+    (* we should not schedule processing functions that has been already processed *)
+    match path with
+    | HPIdent id when Set.mem memo path -> ()
+    | _ -> Queue.enqueue q next
+
+  let dequeue { q } = Queue.dequeue q
+  let dequeue_exn { q } = Queue.dequeue_exn q
 end
+
 let exec api texprs =
   let open Format in
   let module VHC = VHornClauses.ML in
@@ -46,8 +77,7 @@ let exec api texprs =
 
   let rec camllizer ~assert_name univ_vars root_prop : VHC.program =
     let univ_vars = List.map univ_vars ~f:MyIdent.to_string in
-    let q = Queue.init 0 ~f:(fun _ -> assert false) in
-    let (_: (heap_desc * Vtypes.heap) Queue.t) = q in
+    let q = QoF.create () in
     let (_: string option) = assert_name in
 
     let rec do_term term = match term with
@@ -55,7 +85,7 @@ let exec api texprs =
       | LI (None, id, _) -> VHC.E.ident (MyIdent.to_string id)
       | LI (Some (HCmps (l,r) as heap), id, _) ->
           let new_desc = next_heap_desc () in
-          Queue.enqueue q (new_desc, heap);
+          QoF.enqueue q (new_desc, HPArbitrary heap, heap);
           VHC.E.(
             app2
               (app2 (find new_desc)
@@ -73,14 +103,14 @@ let exec api texprs =
           failwiths "TODO: %s %d" __FILE__ __LINE__
     in
     let rec work_queue acc =
-      match Queue.dequeue q with
+      match QoF.dequeue q with
       | None -> VHC.program acc
-      | Some (desc, h) -> match h with
+      | Some (desc, _hp, h) -> match h with
       | HCmps (l,r) ->
           let new_descl = next_heap_desc () in
           let new_descr = next_heap_desc () in
-          Queue.enqueue q (new_descl, l);
-          Queue.enqueue q (new_descr, r);
+          QoF.enqueue q (new_descl, HPArbitrary l, l);
+          QoF.enqueue q (new_descr, HPArbitrary r, r);
           let si =
             VHC.SI.find desc (fun tau x ->
               VHC.E.(app (find new_descl)
@@ -117,10 +147,13 @@ let exec api texprs =
           | exception Not_found ->
               Format.printf "%a\n\n%!" Vtypes.fmt_heap h;
               failwiths "TODO: %s %d" __FILE__ __LINE__
-          | (_, Lambda { lam_argname=Some arg_ident; lam_body }) ->
+          | (_, Lambda { lam_argname=Some arg_ident; lam_body; lam_eff }) ->
               let new_descr = next_heap_desc () in
               let arg_heap = Heap.hsingle arg_ident arg in
-              Queue.enqueue q (new_descr, arg_heap);
+              (* enqueue argument initialization *)
+              QoF.enqueue q (new_descr, HPArbitrary arg_heap, arg_heap);
+              let f_descr = next_heap_desc () in
+              QoF.enqueue q (f_descr, HPIdent ident, lam_eff);
               Format.printf "%a\n\n%!" Vtypes.fmt_heap h;
               Format.printf "%a\n\n%!" Vtypes.fmt_term lam_body;
               failwiths "TODO: %s %d" __FILE__ __LINE__

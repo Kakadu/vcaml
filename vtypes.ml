@@ -1,5 +1,14 @@
 let failwiths fmt = Format.kprintf failwith fmt
 let (>>=?) = Option.(>>=)
+let comparison_of_int ans =
+  if ans < 0 then GT.LT else
+  if ans = 0 then GT.EQ else
+  GT.GT
+
+let int_of_comparison = function
+| GT.LT -> -1
+| GT.EQ -> 0
+| GT.GT -> 1
 
 module MyIdent = struct
   type longident = Longident.t =
@@ -19,10 +28,7 @@ module MyIdent = struct
               method gmap (x: t) = x
               method eq = equal
               method compare x y =
-                let ans = Ident.compare x y in
-                if ans < 0 then GT.LT else
-                if ans = 0 then GT.EQ else
-                GT.GT
+                comparison_of_int @@ Ident.compare x y
           end
           ; GT.fix = (fun _ -> assert false)
           }
@@ -38,6 +44,9 @@ module MyIdent = struct
             method fmt fa fmt o = Format.fprintf fmt "<indent_map>"
             method gmap = Ident.Map.map
             method eq fa = phys_equal
+            method compare fa l r =
+              comparison_of_int @@
+              Ident.Map.compare (fun x y -> int_of_comparison @@ fa x y) l r
         end
         ; GT.fix = (fun _ -> assert false)
         }
@@ -53,6 +62,7 @@ module MyTypes = struct
               method fmt fmt _ = Format.fprintf fmt "<a type>"
               method gmap x = x
               method eq = phys_equal
+              method compare a b = GT.compare GT.int a.Types.id b.Types.id
           end
           ; GT.fix = (fun _ -> assert false)
           }
@@ -61,13 +71,13 @@ end
 let pp_longident () lident = Longident.flatten lident |> String.concat ~sep:"."
 
 type logic_op = Conj | Disj
-[@@deriving gt ~options:{ fmt; gmap; eq }]
+[@@deriving gt ~options:{ fmt; gmap; eq; compare }]
 (* type bin_op = Plus | Minus
         | LT | LE | GT | GE | Eq
         | LOR
 [@@deriving gt ~options:{ fmt; gmap; eq }] *)
 type un_op = LNEG
-[@@deriving gt ~options:{ fmt; gmap; eq }]
+[@@deriving gt ~options:{ fmt; gmap; eq; compare }]
 
 type 'term pf = LogicBinOp of logic_op * 'term pf * 'term pf
               | Not of 'term pf
@@ -75,12 +85,13 @@ type 'term pf = LogicBinOp of logic_op * 'term pf * 'term pf
               | PFTrue
               | PFFalse
               | Term of 'term
-[@@deriving gt ~options:{ fmt; gmap; eq }]
+[@@deriving gt ~options:{ fmt; gmap; eq; compare }]
 
-type mem_repr = MemLeaf  of  int
-              | MemBlock of { mem_tag: int; mem_sz: int; mem_cnt: mem_repr list }
+(*type mem_repr = MemLeaf  of  int
+              | MemBlock of { mem_tag: int; mem_sz: int; mem_cnt: mem_repr list }*)
 
-type rec_flag = Asttypes.rec_flag = Nonrecursive | Recursive [@@deriving gt ~options:{ fmt; gmap; eq }]
+type rec_flag = Asttypes.rec_flag = Nonrecursive | Recursive
+  [@@deriving gt ~options:{ fmt; gmap; eq; compare }]
 
 type builtin =
   | BiPlus
@@ -89,7 +100,8 @@ type builtin =
   | BiOR
   | BiAnd
   | BiNeg
-[@@deriving gt ~options:{ fmt; gmap; eq }]
+[@@deriving gt ~options:{ fmt; gmap; eq; compare }]
+
 
 (* type   z = Z
 type _ s = S : 'n -> 'n s
@@ -124,26 +136,23 @@ and term =
               ; lam_is_rec : GT.bool
               ; lam_typ    : MyTypes.type_expr
               }
-
+and defined_heap = (MyIdent.t * term) GT.list
 and heap =
   (** Heap should be a mapping from terms to terms (array access, for example)
     * but for fibonacci it doesn't matter
     *)
   (* TODO: it should be path instead of ident here *)
   | HDefined of (MyIdent.t * term) GT.list
-  | HMerge of (term pf * t) GT.list
-  | HWrite of t * MyIdent.t * term
+  | HMerge of (term pf * heap) GT.list
+  | HWrite of heap * MyIdent.t * term
   | HCmps of heap * heap
   | HCall of term * term GT.list
   (* Mutation: when we fill the holes in right heap by terms from left heap *)
   (* | HMutation of t * t  *)
+[@@deriving gt ~options:{ fmt; eq; gmap; compare }]
 
-
-and t = heap
-[@@deriving gt ~options:{ fmt; eq; gmap }]
-
-
-type defined_heap = (MyIdent.t * term) list
+type t = heap
+[@@deriving gt ~options:{ fmt; eq; gmap; compare }]
 
 module Defined = struct
   type t = defined_heap
@@ -226,7 +235,7 @@ let pf =
   }
 
 class ['extra_term] my_fmt_term
-    ((for_api, for_t, fself_term,for_heap) as _mutuals_pack)
+    ((for_api, for_defined_heap, for_heap, fself_term) as _mutuals_pack)
   =
   object
     inherit  ['extra_term] fmt_term_t_stub _mutuals_pack as super
@@ -287,7 +296,7 @@ class ['extra_term] my_fmt_term
             fself_term fmt t
           );
           Format.fprintf fmt ")@]";
-      | Builtin (BiNeg as op, _) ->
+      | Builtin (BiNeg, _) ->
           assert (List.length args = 1);
           Format.fprintf fmt "@[¬(%a)@]" fself_term (List.hd_exn args)
       | _ ->
@@ -299,7 +308,7 @@ let hack_rec_flg fmt = function
   | Nonrecursive ->  Format.fprintf fmt "↦"
 
 class ['extra_api] my_fmt_api
-    ((for_api, for_t, for_term,for_heap) as _mutuals_pack)
+    ((for_api, for_defined_heap, for_heap, for_term) as _mutuals_pack)
   =
   object
     inherit  ['extra_api] fmt_api_t_stub _mutuals_pack
@@ -326,25 +335,46 @@ class ['extra_api] my_fmt_api
 
   end
 
-
-class ['extra_t] my_fmt_t ((for_api, fself_t, for_term, for_heap) as _mutuals_pack)
+class ['extra_defined_heap] my_fmt_defined_heap
+    ((for_api, for_defined_heap, for_heap, for_term) as _mutuals_pack)
   =
   object
-    inherit  ['extra_t] fmt_t_t_stub _mutuals_pack
+    inherit  [Format.formatter,'extra_defined_heap,unit] defined_heap_t
+    constraint 'extra_defined_heap = defined_heap
+(*    inherit  (([(MyIdent.t * term),'extra_defined_heap] GT.fmt_list_t)
+      (fun _x__530_ ->
+         fun (_x__531_, _x__532_) ->
+           Format.fprintf _x__530_ "@[(@,%a,@,@ %a@,)@]"
+             (fun inh___533_ ->
+                fun subj___534_ -> GT.fmt MyIdent.t inh___533_ subj___534_)
+             _x__531_ fmt_term _x__532_)
+      for_defined_heap)*)
+
+    method c_Nil fmt _ = Format.fprintf fmt "@[ε@]"
+    method c_Cons fmt _ (hi,ht) xs =
+      Format.open_hvbox 0;
+      (* Format.fprintf fmt   "\x1b[31m"; *)
+      Format.fprintf fmt   "@[<hov>⟦ @[⦗%a,@ %a⦘@]@]" (GT.fmt MyIdent.t) hi for_term ht;
+      List.iter xs ~f:(fun (ident,term) ->
+        Format.fprintf fmt "@[<hov>; @[⦗%a,@ %a⦘@]@]" (GT.fmt MyIdent.t) ident for_term term
+      );
+(*      Format.fprintf fmt   "\x1b[31m";*)
+      Format.fprintf fmt "⟧";
+(*      Format.fprintf fmt "\x1b[39;49m";*)
+      Format.close_box ();   (* closing hvbox *)
+      ()
+
+  end
+
+
+class ['extra_t] my_fmt_heap ((for_api, for_defined_heap, for_heap, for_term) as _mutuals_pack)
+  =
+  object
+    inherit  ['extra_t] fmt_heap_t_stub _mutuals_pack
 
     method! c_HDefined fmt _ xs =
-      match xs with
-      | [] -> Format.fprintf fmt "ε"
-      | (hi,ht)::xs ->
-          Format.open_hovbox 0;
-          (* Format.fprintf fmt   "\x1b[31m"; *)
-          Format.fprintf fmt   "@[⟦ @[⦗%a,@ %a⦘@]@]" (GT.fmt MyIdent.t) hi for_term ht;
-          List.iter xs ~f:(fun (ident,term) ->
-            Format.fprintf fmt "@[; @[⦗%a,@ %a⦘@]@]" (GT.fmt MyIdent.t) ident for_term term
-          );
-          Format.fprintf fmt "⟧";
-          (* Format.fprintf fmt "\x1b[39;49m"; *)
-          Format.close_box ()
+    for_defined_heap fmt xs
+
     method! c_HCmps fmt _ l r =
       Format.fprintf fmt "@[(%a@ ∘@ %a)@]" for_heap l for_heap r
     method c_HCall fmt _ f args =
@@ -357,7 +387,7 @@ class ['extra_t] my_fmt_t ((for_api, fself_t, for_term, for_heap) as _mutuals_pa
         | [] -> Format.fprintf fmt "[]"
         | x::xs ->
           Format.fprintf fmt "@[<v>";
-          let f fmt (g,h) = Format.fprintf fmt "(%a, %a)" (GT.fmt pf for_term) g fself_t h in
+          let f fmt (g,h) = Format.fprintf fmt "(%a, %a)" (GT.fmt pf for_term) g for_heap h in
           Format.fprintf fmt   "@[[ %a@]" f x;
           List.iter xs ~f:(fun p -> Format.fprintf fmt "@,@[; @,%a@]@," f p);
           Format.fprintf fmt "]@]"
@@ -365,25 +395,26 @@ class ['extra_t] my_fmt_t ((for_api, fself_t, for_term, for_heap) as _mutuals_pa
       Format.fprintf fmt ")@]"
   end
 
-let fmt_term_0 = new my_fmt_term
-let fmt_api_0 = new my_fmt_api
-let fmt_t_0 = new my_fmt_t
-let fmt_heap_0 = fmt_t_0
+let fmt_api_0          = new my_fmt_api
+let fmt_defined_heap_0 = new my_fmt_defined_heap
+let fmt_heap_0         = new my_fmt_heap
+let fmt_term_0         = new my_fmt_term
+
 let fmt_api eta =
   let (f, _, _, _) =
-    fix_api fmt_api_0  fmt_t_0 fmt_term_0 fmt_heap_0 in
+    fix_api fmt_api_0 fmt_defined_heap_0 fmt_heap_0 fmt_term_0 in
   f eta
-let fmt_t eta =
+let fmt_defined_heap eta =
   let (_, f, _, _) =
-    fix_api fmt_api_0  fmt_t_0 fmt_term_0 fmt_heap_0 in
-  f eta
-let fmt_term eta =
-  let (_, _, f, _) =
-    fix_api fmt_api_0  fmt_t_0 fmt_term_0 fmt_heap_0 in
+    fix_api fmt_api_0 fmt_defined_heap_0 fmt_heap_0 fmt_term_0 in
   f eta
 let fmt_heap eta =
+  let (_, _, f, _) =
+    fix_api fmt_api_0 fmt_defined_heap_0 fmt_heap_0 fmt_term_0 in
+  f eta
+let fmt_term eta =
   let (_, _, _, f) =
-    fix_api fmt_api_0  fmt_t_0 fmt_term_0 fmt_heap_0 in
+    fix_api fmt_api_0 fmt_defined_heap_0 fmt_heap_0 fmt_term_0 in
   f eta
 
 let api = {
@@ -391,14 +422,13 @@ let api = {
     GT.fix = fix_api;
     GT.plugins = (object method fmt = fmt_api end)
   }
-let _ = api
 
 let t = {
     GT.gcata = gcata_t;
     GT.fix = fix_api;
     GT.plugins = (object method fmt = fmt_t end)
   }
-let _ = t
+
 let term =  {
     GT.gcata = gcata_term;
     GT.fix = fix_api;
@@ -408,13 +438,15 @@ let term =  {
       method gmap  = term.plugins#gmap
     end
   }
-let _ = term
+
 let heap = {
     GT.gcata = gcata_heap;
     GT.fix = fix_api;
     GT.plugins = object
-      method fmt = fmt_heap
-      method eq = eq_heap
+      method fmt     = fmt_heap
+      method eq      = eq_heap
+      method gmap    = gmap_heap
+      method compare = compare_heap
     end
   }
 

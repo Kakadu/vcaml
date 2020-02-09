@@ -3,7 +3,7 @@ open Vtypes
 let pp_term () t =
   Format.asprintf "%a" term.GT.plugins#fmt t
 
-let pp_heap () h = Format.asprintf "%a" heap.GT.plugins#fmt h
+let pp_heap () (h: heap) = Format.asprintf "%a" (GT.fmt heap) h
 
 let fold_defined ~f ~init = List.fold_left ~init ~f
 
@@ -323,7 +323,7 @@ and read_generalized heap ident typ =
   | HDefined hs -> read_ident_defined hs ident typ
   | _ -> li ~heap ident typ
 
-and hcmps : t -> t -> t = fun l r ->
+and hcmps : heap -> heap -> heap = fun l r ->
   let ans =
     match (l,r) with
     | (HDefined [], h) -> h
