@@ -79,13 +79,13 @@ type logic_op = Conj | Disj
 type un_op = LNEG
 [@@deriving gt ~options:{ fmt; gmap; eq; compare }]
 
-type 'term pf = LogicBinOp of logic_op * 'term pf * 'term pf
+(*type 'term pf = LogicBinOp of logic_op * 'term pf * 'term pf
               | Not of 'term pf
               | EQident of MyIdent.t * MyIdent.t
               | PFTrue
               | PFFalse
               | Term of 'term
-[@@deriving gt ~options:{ fmt; gmap; eq; compare }]
+[@@deriving gt ~options:{ fmt; gmap; eq; compare }]*)
 
 (*type mem_repr = MemLeaf  of  int
               | MemBlock of { mem_tag: int; mem_sz: int; mem_cnt: mem_repr list }*)
@@ -97,9 +97,9 @@ type builtin =
   | BiPlus
   | BiMinus
   | BiLT | BiLE | BiGT | BiGE | BiEq
-  | BiOR
-  | BiAnd
-  | BiNeg
+  (* logical operations *)
+  | BiOr | BiAnd | BiNeg
+  | BEStuctEq
 [@@deriving gt ~options:{ fmt; gmap; eq; compare }]
 
 
@@ -128,7 +128,7 @@ and term =
   | UnOp  of un_op * term * MyTypes.type_expr *)
   | Builtin of builtin * MyTypes.type_expr
   | Call    of term * term GT.list * MyTypes.type_expr
-  | Union   of (term pf * term) GT.list
+  | Union   of (term * term) GT.list
   | Lambda of { lam_argname: MyIdent.t GT.option
               ; lam_api    : api
               ; lam_eff    : heap
@@ -143,7 +143,7 @@ and heap =
     *)
   (* TODO: it should be path instead of ident here *)
   | HDefined of (MyIdent.t * term) GT.list
-  | HMerge of (term pf * heap) GT.list
+  | HMerge of (term * heap) GT.list
   | HWrite of heap * MyIdent.t * term
   | HCmps of heap * heap
   | HCall of term * term GT.list
@@ -190,14 +190,14 @@ let fmt_builtin fmt = function
   | BiLE    -> Format.fprintf fmt "≤"
   | BiGE    -> Format.fprintf fmt "≥"
   | BiEq    -> Format.fprintf fmt "="
-  | BiOR    -> Format.fprintf fmt "||"
+  | BiOr    -> Format.fprintf fmt "||"
   | BiAnd   -> Format.fprintf fmt "&&"
   | BiNeg   -> Format.fprintf fmt "not"
 
 let fmt_logic_op fmt = function
   | Conj -> Format.fprintf fmt "∧"
   | Disj -> Format.fprintf fmt "∨"
-
+(*
 class ['a, 'extra_pf] my_fmt_pf for_term fself_pf =
   object
     inherit ['a, 'extra_pf] fmt_pf_t for_term fself_pf
@@ -233,7 +233,7 @@ let pf =
       method eq    = pf.plugins#eq
     end
   }
-
+*)
 class ['extra_term] my_fmt_term
     ((for_api, for_defined_heap, for_heap, fself_term) as _mutuals_pack)
   =
@@ -270,7 +270,7 @@ class ['extra_term] my_fmt_term
       (* TODO: normal printing *)
       Format.fprintf fmt "@[<hv>(Union@ ";
       GT.list.GT.plugins#fmt (fun fmt (l,r) ->
-        Format.fprintf fmt "@[⦗@,@[%a@], @[%a@]@,⦘@]" (GT.fmt pf fself_term) l fself_term r
+        Format.fprintf fmt "@[⦗@,@[%a@], @[%a@]@,⦘@]" fself_term l fself_term r
       ) fmt ps;
       Format.fprintf fmt ")@]";
       ()
@@ -387,7 +387,7 @@ class ['extra_t] my_fmt_heap ((for_api, for_defined_heap, for_heap, for_term) as
         | [] -> Format.fprintf fmt "[]"
         | x::xs ->
           Format.fprintf fmt "@[<v>";
-          let f fmt (g,h) = Format.fprintf fmt "(%a, %a)" (GT.fmt pf for_term) g for_heap h in
+          let f fmt (g,h) = Format.fprintf fmt "(%a, %a)" for_term g for_heap h in
           Format.fprintf fmt   "@[[ %a@]" f x;
           List.iter xs ~f:(fun p -> Format.fprintf fmt "@,@[; @,%a@]@," f p);
           Format.fprintf fmt "]@]"

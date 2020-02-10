@@ -13,7 +13,6 @@ module type HornAPI =  sig
     val bool : bool -> term
     val minus : term -> term -> term
     val plus  : term -> term -> term
-
     val var  : string -> term
     val call_uf : string -> term list -> term
   end
@@ -106,11 +105,11 @@ module V1 = struct
 
   let app_space fmt pp = pp fmt; Format.fprintf fmt " "
 
-  let declare_rel name sorts = fun fmt ->
+(*  let declare_rel name sorts = fun fmt ->
     Format.fprintf fmt "(declare-rel %s (" name;
     assert (List.length sorts > 0);
     List.iter sorts ~f:(app_space fmt);
-    Format.fprintf fmt ")\n"
+    Format.fprintf fmt ")\n"*)
 
   module S = struct
     let int fmt  = Format.fprintf fmt "Int"
@@ -164,11 +163,11 @@ module V2 : HornAPI = struct
   let bubt t xs : term    = (t,xs)
 
   let safe_term_var s = (fun fmt -> Format.fprintf fmt "%s" s)
-  let safe_eq l r fmt =
+(*  let safe_eq l r fmt =
     Format.fprintf fmt "@[(=@ ";
     app_space fmt l;
     r fmt;
-    Format.fprintf fmt ")@]"
+    Format.fprintf fmt ")@]"*)
 
   let safe_term_app name args rez : post_formula = fun fmt ->
     Format.fprintf fmt "@[(%s@ " name;
@@ -265,11 +264,11 @@ module V2 : HornAPI = struct
       bubt (VarNeeded (name, pps)) phormulas
   end
 
-  let declare_rel name sorts = fun fmt ->
+(*  let declare_rel name sorts = fun fmt ->
     Format.fprintf fmt "(declare-rel %s (" name;
     assert (List.length sorts > 0);
     List.iter sorts ~f:(app_space fmt);
-    Format.fprintf fmt ")\n"
+    Format.fprintf fmt ")\n"*)
 
   module S = struct
     let int fmt  = Format.fprintf fmt "Int"
@@ -303,6 +302,10 @@ module type ML_API = sig
     val app  : expr -> expr list -> expr
     val find : heap_index -> expr
     val switch_ident : ident -> (ident * expr) list -> expr
+    val ite : expr -> expr -> expr -> expr
+
+    val unreachable: expr
+    val todo: expr
   end
   module SI : sig
     val find : string -> (string -> string -> expr) -> si
@@ -349,7 +352,14 @@ module ML : ML_API = struct
         e fmt;
         Format.fprintf fmt "@ else@ ";
       );
-      Format.fprintf fmt "else failwith \"unreachable\")@]";
+      Format.fprintf fmt "else failwith \"unreachable\")@]"
+
+    let ite c th el fmt =
+      let wrap f fmt () = f fmt in
+      Format.fprintf fmt "(if %a then %a else %a)" (wrap c) () (wrap th) () (wrap el) ()
+
+    let unreachable fmt = Format.fprintf fmt "(failwith (Printf.sprintf \"unreachable %%s %%d\" __FILE__ __LINE__))"
+    let todo fmt = Format.fprintf fmt "TODO"
   end
 
   module SI = struct

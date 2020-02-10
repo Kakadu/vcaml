@@ -51,6 +51,10 @@ module type ML_API = sig
     val app : expr -> expr list -> expr
     val find : heap_index -> expr
     val switch_ident : ident -> (ident * expr) list -> expr
+    val ite : expr -> expr -> expr -> expr
+
+    val unreachable: expr
+    val todo: expr
   end
   module SI : sig
     val find : heap_index -> (string -> string -> expr) -> si

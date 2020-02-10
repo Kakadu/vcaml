@@ -103,6 +103,7 @@ let exec api texprs =
           failwiths "TODO: %s %d" __FILE__ __LINE__
     in
     let rec work_queue acc =
+      let continue xs = work_queue (xs @ acc) in
       match QoF.dequeue q with
       | None -> VHC.program acc
       | Some (desc, _hp, h) -> match h with
@@ -158,6 +159,23 @@ let exec api texprs =
               (*Format.printf "%a\n\n%!" Vtypes.fmt_heap h;
               Format.printf "%a\n\n%!" Vtypes.fmt_term lam_body;
               failwiths "TODO: %s %d" __FILE__ __LINE__*)
+        end
+      | HMerge gs -> begin
+          match _hp with
+          | HPIdent ident ->
+            let si =
+              VHC.SI.find desc (fun tau x ->
+                List.fold_right gs
+                  ~init: VHC.E.unreachable
+                  ~f:(fun (guard_term, heap) acc ->
+                    let c = do_term guard_term in
+                    VHC.E.(ite c todo acc)
+                  )
+                ))
+            in
+            continue [si]
+          | ->
+              failwiths "TODO: %s %d" __FILE__ __LINE__
         end
       | _ ->
           Format.printf "heap path: %a\n%!" (GT.fmt heap_path) _hp;

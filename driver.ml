@@ -33,7 +33,7 @@ let classify_binop = function
   | "="  -> Some (Vtypes.BiEq, Predef.type_bool)
   | "+"  -> Some (Vtypes.BiPlus,  Predef.type_int)
   | "-"  -> Some (Vtypes.BiMinus, Predef.type_int)
-  | "||" -> Some (Vtypes.BiOR,    Predef.type_bool)
+  | "||" -> Some (Vtypes.BiOr,    Predef.type_bool)
   | "&&" -> Some (Vtypes.BiAnd,   Predef.type_bool)
   | _    -> None
 
@@ -144,12 +144,13 @@ and process_expr (api,heap) e =
   | Texp_apply ({exp_desc=Texp_ident(_,{txt=Lident opname},{val_type})}, [(_,Some l); (_,Some r) ])
         when Option.is_some (classify_binop opname) -> begin
     (* binop *)
-    let op,rez_typ = Base.Option.value_exn  (classify_binop opname) in
+    let op,_ = Base.Option.value_exn  (classify_binop opname) in
     (* Although we don't need to return updated API we return it
      * to have a global cache of function summaries *)
+    e.
     let api_1,h1,l2 = process_expr (api,heap) l in
     let api_2,h2,r2 = process_expr (api_1,h1) r in
-    (api_2, h2, Heap.binop (Heap.builtin op val_type) l2 r2 rez_typ)
+    (api_2, h2, Heap.binop (Heap.builtin op val_type) l2 r2 e.exp_type)
   end
   | Texp_apply ({exp_desc=Texp_ident(Pdot (Pident _ident,":=",_), _, _)},
                [(_,Some {exp_desc=Texp_ident(Pident ident,_,_)}); (_,Some rhs) ]) -> begin

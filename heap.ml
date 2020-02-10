@@ -60,6 +60,7 @@ let simplify_term t =
   in
   helper t
 
+(*
 let rec simplify_pf = function
   | Not ph -> begin
       match simplify_pf ph with
@@ -75,7 +76,8 @@ let rec simplify_pf = function
   | LogicBinOp (Disj, _, PFTrue) -> PFTrue
   | EQident (l,r) when Ident.equal l r -> PFTrue
   | ph -> ph
-
+*)
+(*
 let simplify_guards gs =
   let exception QQQ in
   List.filter_map gs ~f:(fun (ph, term) ->
@@ -84,6 +86,7 @@ let simplify_guards gs =
     | PFFalse -> None
     | pf -> Some (pf, simplify_term term)
   )
+*)
 
 (** Term operations *)
 let call fexpr args typ =
@@ -99,16 +102,21 @@ let lambda lam_is_rec lam_argname lam_api lam_eff lam_body lam_typ =
   simplify_term @@ Lambda { lam_argname; lam_api; lam_eff; lam_body; lam_is_rec; lam_typ }
 let li ?heap longident typ = LI (heap, longident, typ)
 let ident longident typ = Ident (longident, typ)
+let conj a b typ = Call (Builtin (BiAnd, assert false), [a;b], typ)
+
+let binop op a b typ = simplify_term @@ Call (op, [a;b], typ)
+let unop  op arg typ = simplify_term @@ Call (op, [arg], typ)
 
 let union xs =
   (* Printexc.print_raw_backtrace stdout (Printexc.get_callstack 2); *)
   (* TODO: optimize Union [ ⦗("n_1635" < 0), x⦘; ⦗¬("n_1635" < 0), x⦘] *)
-  match simplify_guards xs with
+  (*match simplify_guards xs with*)
+  match xs with
   (* | [] -> failwiths "FIXME: Introduce unreachable term for empty union." *)
-  | [(PFTrue, t)] -> t
-  | [ (g1,x); (g2,y)] when (GT.eq Vtypes.term x y)
-        && (GT.eq Vtypes.pf phys_equal g1 (Not g2) || GT.eq Vtypes.pf phys_equal g2 (Not g1)  )
-      -> x
+  | [(CBool true, t)] -> t
+  (*| [ (g1,x); (g2,y)] when (GT.eq Vtypes.term x y)
+        && (GT.eq Vtypes.term g1 (Not g2) || GT.eq Vtypes.term g2 (Not g1)  )
+      -> x*)
   | xs ->
       let reduced =
         List.concat_map xs ~f:(fun (g,t) ->
@@ -119,8 +127,6 @@ let union xs =
       in
       Union reduced
 let union2 g1 t1 g2 t2 = union [(g1,t1); (g2,t2)]
-let binop op a b typ = simplify_term @@ Call (op, [a;b], typ)
-let unop  op arg typ = simplify_term @@ Call (op, [arg], typ)
 let builtin op typ = Builtin (op, typ)
 
 let is_empty_union = function
