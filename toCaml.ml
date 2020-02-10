@@ -13,7 +13,7 @@ type heap_path =
   (* Identifier of function *)
   | HPDefined of Vtypes.defined_heap
   | HPArbitrary of Vtypes.heap
-  | HPCmps of heap_path * heap_path [@@deriving gt ~options:{compare}]
+  | HPCmps of heap_path * heap_path [@@deriving gt ~options:{compare; fmt}]
 
 (** Queue of scheduled items for `find_sufix` generation *)
 module QoF : sig
@@ -154,11 +154,13 @@ let exec api texprs =
               QoF.enqueue q (new_descr, HPArbitrary arg_heap, arg_heap);
               let f_descr = next_heap_desc () in
               QoF.enqueue q (f_descr, HPIdent ident, lam_eff);
-              Format.printf "%a\n\n%!" Vtypes.fmt_heap h;
+              work_queue acc
+              (*Format.printf "%a\n\n%!" Vtypes.fmt_heap h;
               Format.printf "%a\n\n%!" Vtypes.fmt_term lam_body;
-              failwiths "TODO: %s %d" __FILE__ __LINE__
+              failwiths "TODO: %s %d" __FILE__ __LINE__*)
         end
       | _ ->
+          Format.printf "heap path: %a\n%!" (GT.fmt heap_path) _hp;
           Format.printf "%a\n\n%!" Vtypes.fmt_heap h;
           failwiths "TODO: %s %d" __FILE__ __LINE__
     in
