@@ -70,14 +70,14 @@ end
 
 let pp_longident () lident = Longident.flatten lident |> String.concat ~sep:"."
 
-type logic_op = Conj | Disj
-[@@deriving gt ~options:{ fmt; gmap; eq; compare }]
+(*type logic_op = Conj | Disj
+[@@deriving gt ~options:{ fmt; gmap; eq; compare }]*)
 (* type bin_op = Plus | Minus
         | LT | LE | GT | GE | Eq
         | LOR
 [@@deriving gt ~options:{ fmt; gmap; eq }] *)
-type un_op = LNEG
-[@@deriving gt ~options:{ fmt; gmap; eq; compare }]
+(*type un_op = LNEG
+[@@deriving gt ~options:{ fmt; gmap; eq; compare }]*)
 
 (*type 'term pf = LogicBinOp of logic_op * 'term pf * 'term pf
               | Not of 'term pf
@@ -96,10 +96,11 @@ type rec_flag = Asttypes.rec_flag = Nonrecursive | Recursive
 type builtin =
   | BiPlus
   | BiMinus
-  | BiLT | BiLE | BiGT | BiGE | BiEq
+  | BiLT | BiLE | BiGT | BiGE
   (* logical operations *)
   | BiOr | BiAnd | BiNeg
-  | BEStuctEq
+  | BiStructEq
+  | BiPhysEq
 [@@deriving gt ~options:{ fmt; gmap; eq; compare }]
 
 
@@ -124,9 +125,8 @@ and term =
    *)
   | LI    of heap GT.option * MyIdent.t * MyTypes.type_expr
   | Ident of MyIdent.t * MyTypes.type_expr
-  (* | BinOp of bin_op * term * term * MyTypes.type_expr
-  | UnOp  of un_op * term * MyTypes.type_expr *)
-  | Builtin of builtin * MyTypes.type_expr
+  | Builtin of builtin
+  (* types for builtin values are predefined *)
   | Call    of term * term GT.list * MyTypes.type_expr
   | Union   of (term * term) GT.list
   | Lambda of { lam_argname: MyIdent.t GT.option
@@ -179,8 +179,8 @@ end
 
 (* Pretty-printing boilerplate now *)
 
-let fmt_unop fmt = function
-| LNEG  -> Format.fprintf fmt "not "
+(*let fmt_unop fmt = function
+| LNEG  -> Format.fprintf fmt "not "*)
 
 let fmt_builtin fmt = function
   | BiPlus  -> Format.fprintf fmt "+"
@@ -192,11 +192,13 @@ let fmt_builtin fmt = function
   | BiEq    -> Format.fprintf fmt "="
   | BiOr    -> Format.fprintf fmt "||"
   | BiAnd   -> Format.fprintf fmt "&&"
-  | BiNeg   -> Format.fprintf fmt "not"
+  | BiNeg     -> Format.fprintf fmt "not"
+  | BiStuctEq -> Format.fprintf fmt "="
 
-let fmt_logic_op fmt = function
+(*let fmt_logic_op fmt = function
   | Conj -> Format.fprintf fmt "∧"
-  | Disj -> Format.fprintf fmt "∨"
+  | Disj -> Format.fprintf fmt "∨"*)
+
 (*
 class ['a, 'extra_pf] my_fmt_pf for_term fself_pf =
   object
@@ -278,17 +280,17 @@ class ['extra_term] my_fmt_term
       match f with
       | Ident (id, typ) ->
           Format.fprintf fmt "Call@ @[@,%a,@,@ (%a@,)@]" fself_term f (GT.fmt GT.list fself_term) args
-      | Builtin (BiEq, _) ->
+      | Builtin BiEq ->
           assert (List.length args = 2);
           let l = List.hd_exn args in
           let r = List.nth_exn args 1 in
           Format.fprintf fmt "@[(%a@ =@ %a)@]" fself_term l fself_term r
-      | Builtin (BiLE, _) ->
+      | Builtin BiLE ->
           assert (List.length args = 2);
           let l = List.hd_exn args in
           let r = List.nth_exn args 1 in
           Format.fprintf fmt "@[(%a@ ≤@ %a)@]" fself_term l fself_term r
-      | Builtin (BiAnd as op, _) ->
+      | Builtin (BiAnd as op) ->
           assert (List.length args > 0);
           Format.fprintf fmt "@[(";
           List.iteri args ~f:(fun i t ->
@@ -296,7 +298,7 @@ class ['extra_term] my_fmt_term
             fself_term fmt t
           );
           Format.fprintf fmt ")@]";
-      | Builtin (BiNeg, _) ->
+      | Builtin BiNeg ->
           assert (List.length args = 1);
           Format.fprintf fmt "@[¬(%a)@]" fself_term (List.hd_exn args)
       | _ ->

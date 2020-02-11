@@ -7,7 +7,10 @@ let pp_heap () (h: heap) = Format.asprintf "%a" (GT.fmt heap) h
 
 let fold_defined ~f ~init = List.fold_left ~init ~f
 
-let rec type_of_term = function
+let rec type_of_term root =
+  let wrap desc = { Types.level = 0; scope = None; id=0; desc } in
+  let var a  = wrap (Tvar (Some a)) in
+  match root with
   | Union [] -> None
   | Union ((_,t)::_) -> type_of_term t
   | CInt _  -> Some Predef.type_int
@@ -15,11 +18,15 @@ let rec type_of_term = function
   | Unit    -> Some Predef.type_unit
   | LI (_,_,t)
   | Ident (_,t)
-  | Builtin (_,t)
   (* | BinOp (_,_,_,t) *)
   | Lambda {lam_typ = t}
   | Call (_,_,t) -> Some t
-
+  | Builtin BiEq ->
+      (* TODO: achtung *)
+      let a = var "a" in
+      Some (wrap @@  Tarrow (Nolabel, a, a, Cok))
+  | Builtin BiPlus ->
+      Some (wrap @@  Tarrow (Nolabel, Predef.type_int, Predef.type_int, Cok))
   (* | _ -> failwiths "Not implemented %s %d" __FILE__ __LINE__ *)
 
 (** Simplification *)
@@ -121,7 +128,10 @@ let union xs =
       let reduced =
         List.concat_map xs ~f:(fun (g,t) ->
           match t with
-          | Union inners -> List.map inners ~f:(fun (k,v) -> simplify_pf @@ LogicBinOp (Conj, g, k), v )
+          | Union inners -> List.map inners ~f:(fun (k,v) ->
+              let new_g = call (Builtin (BiAnd, None)) [g; k] Predef.type_bool in
+              (simplify_term new_g, v)
+            )
           | _ -> [ (g,t) ]
           )
       in
@@ -134,20 +144,28 @@ let is_empty_union = function
   | _ -> false
 
 (** Propositonal formula operations *)
-
+(*
 let pf_term el = Term el
 let pf_not pf = simplify_pf @@ Not pf
 let pf_binop op f1 f2 = simplify_pf @@ LogicBinOp (op, f1, f2)
-let pf_eq id1 id2 =
+*)
+let pf_eq t1 t2 =
   (* if (String.equal (MyIdent.to_string id1) "loop_1637" &&
       String.equal (MyIdent.to_string id2) "ndx_1003"
     )
   then assert false; *)
-  simplify_pf @@ EQident (id1, id2)
+
+  (* TODO: simplify arguments *)
+  call (Builtin (BiEq, None)) [ t1; t2 ]
+  (*simplify_pf @@ EQident (id1, id2)*)
+
+(*
 let pf_neq id1 id2 = simplify_pf @@ pf_not @@ EQident (id1, id2)
 let pf_conj_list = function
   | [] -> PFTrue
   | h::hs -> List.fold_left ~init:h hs ~f:(pf_binop Conj)
+
+*)
 
 (** Heap construction *)
 let his_empty = function
@@ -242,7 +260,7 @@ let rec hdot_defined hs term =
   | CBool _
   | CInt _ -> term
   | Union us     -> union @@ List.map us ~f:(fun (g,t) ->
-                      ( simplify_pf @@ GT.gmap pf (hdot_defined hs) g
+                      ( simplify_term @@ hdot_defined hs g
                       , hdot_defined hs t)
                     )
   | Call (f, args, typ) ->
@@ -266,7 +284,7 @@ and read_ident_defined hs ident typ =
 
     (* We should return UNION here *)
     let positives = List.filter_map may_equal ~f:(fun (k,v) ->
-      Some (pf_eq k ident, v)
+      Some (pf_eq (Ident,k (Ident (ident, typ)), v)
     )
     in
     let neg = pf_conj_list @@ List.map may_equal ~f:(fun (k,_) -> pf_not @@ pf_eq k ident) in
