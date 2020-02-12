@@ -30,11 +30,11 @@ let classify_binop = function
   | "<"  -> Some (Vtypes.BiLT, Predef.type_bool)
   | ">"  -> Some (Vtypes.BiGT, Predef.type_bool)
   | ">=" -> Some (Vtypes.BiGE, Predef.type_bool)
-  | "="  -> Some (Vtypes.BiEq, Predef.type_bool)
   | "+"  -> Some (Vtypes.BiPlus,  Predef.type_int)
   | "-"  -> Some (Vtypes.BiMinus, Predef.type_int)
   | "||" -> Some (Vtypes.BiOr,    Predef.type_bool)
   | "&&" -> Some (Vtypes.BiAnd,   Predef.type_bool)
+  | "="  -> None
   | _    -> None
 
 exception IdentNotFound of MyIdent.t  * string
@@ -85,7 +85,7 @@ and process_vb (api,heap) recflg { vb_pat; vb_expr; _ } : Heap.Api.t * MyIdent.t
       let (api,eff,ans) = process_expr (api, Heap.hempty) vb_expr in
       FCPM.is_caml_ref vb_expr
         ~ok:(fun _ ->
-              (api, Some ident, ans, heap %%% eff %%% (Heap.hsingle ident ans))
+              (api, Some ident, ans, heap %%% eff %%% (Heap.hsingle ident ans vb_expr.exp_type))
           )
         (fun () -> (api, Some ident, ans, heap %%% eff) )
       (* (api, Some ident, ans, heap %%% eff) *)
@@ -113,7 +113,7 @@ and process_expr (api,heap) e =
         (* Processing `fun () -> c_rhs` *)
     let api, h, ans = process_expr (api,heap) c_rhs in
     (* Format.eprintf "%s %d %a\n%!" __FILE__ __LINE__ Vtypes.t.GT.plugins#fmt h; *)
-    (api, Heap.hempty, Heap.lambda false None (fst api) h ans e.exp_type)
+    (api, Heap.hempty, Heap.lambda false None ~arg_type:Vpredef.type_unit (fst api) h ans e.exp_type)
 
   | Texp_function { param; cases=[{c_guard=None; c_lhs={pat_desc=Tpat_var(argname,_)}; c_rhs}] } ->
         (* Processing `fun argname -> c_rhs` *)
@@ -121,7 +121,11 @@ and process_expr (api,heap) e =
       let api, h, ans = process_expr (api,heap) c_rhs in
 
       (* Format.eprintf "%s %d %a\n%!" __FILE__ __LINE__ Vtypes.t.GT.plugins#fmt h; *)
-      (api, Heap.hempty, Heap.lambda false (Some argname) (fst api) h ans e.exp_type)
+      let arg_type = match e.exp_type.Types.desc with
+      | Tarrow (_,arg,_,_) -> arg
+      | _ -> failwith "Can get type of function's argument. should not happen"
+      in
+      (api, Heap.hempty, Heap.lambda false (Some argname) ~arg_type (fst api) h ans e.exp_type)
 
   | Texp_let (recflg, [vb], body) -> begin
       match process_vb (api,heap) recflg vb with
@@ -147,12 +151,12 @@ and process_expr (api,heap) e =
     let op,_ = Base.Option.value_exn  (classify_binop opname) in
     (* Although we don't need to return updated API we return it
      * to have a global cache of function summaries *)
-    e.
+
     let api_1,h1,l2 = process_expr (api,heap) l in
     let api_2,h2,r2 = process_expr (api_1,h1) r in
     (api_2, h2, Heap.binop (Heap.builtin op val_type) l2 r2 e.exp_type)
   end
-  | Texp_apply ({exp_desc=Texp_ident(Pdot (Pident _ident,":=",_), _, _)},
+  | Texp_apply ({exp_desc=Texp_ident(Pdot (Pident _ident,":="), _, _)},
                [(_,Some {exp_desc=Texp_ident(Pident ident,_,_)}); (_,Some rhs) ]) -> begin
         (* ident := rhs *)
     (* Format.eprintf "Tracing '%s'" (UntypeP.expr e); *)
@@ -167,11 +171,11 @@ and process_expr (api,heap) e =
       (api_1, heap_ans, Heap.Unit)
     | z -> failwith @@ Format.sprintf "not implemented. Expected LI but got '%a'" Heap.pp_term z *)
   end
-  | Texp_apply ({exp_desc=Texp_ident(Pdot (Pident _ident, "!", _), _, _)}, [ (_,Some r) ]) -> begin
+  | Texp_apply ({exp_desc=Texp_ident(Pdot (Pident _ident, "!"), _, _)}, [ (_,Some r) ]) -> begin
     let api,h,r = process_expr (api,heap) r in
     (api,h,r)
   end
-  | Texp_apply ({exp_desc=Texp_ident(Pdot (Pident _ident, "not", _), _, {val_type})}, [ (_,Some rhs) ]) ->
+  | Texp_apply ({exp_desc=Texp_ident(Pdot (Pident _ident, "not"), _, {val_type})}, [ (_,Some rhs) ]) ->
     let api,h,r = process_expr (api,heap) rhs in
     (api,h, Heap.unop (Heap.builtin Vtypes.BiNeg val_type) r Predef.type_bool)
 
@@ -319,10 +323,9 @@ and process_expr (api,heap) e =
     let h_after_cond = h1 in
     let (api,h2,th) = process_expr (api,h_after_cond) ethen in
     let (api,h3,el) = process_expr (api,h_after_cond) eelse in
-    let g    = Heap.pf_term e in
-    let notg = Heap.pf_not g in
-    (api, Heap.hmerge2     g h2 notg h3, Heap.union2 g th notg el)
-  | Texp_match (what, cases, _exc_cases, _) -> begin
+    let notg = Heap.pf_not e in
+    (api, Heap.hmerge2     e h2 notg h3, Heap.union2 e th notg el)
+  | Texp_match (what, cases, _) -> begin
     Format.printf "HERR\n%!";
 
     match cases with

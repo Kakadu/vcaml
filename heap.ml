@@ -1,4 +1,5 @@
 open Vtypes
+open Vpredef
 
 let pp_term () t =
   Format.asprintf "%a" term.GT.plugins#fmt t
@@ -8,8 +9,7 @@ let pp_heap () (h: heap) = Format.asprintf "%a" (GT.fmt heap) h
 let fold_defined ~f ~init = List.fold_left ~init ~f
 
 let rec type_of_term root =
-  let wrap desc = { Types.level = 0; scope = None; id=0; desc } in
-  let var a  = wrap (Tvar (Some a)) in
+(*  let wrap desc = { Types.level = 0; scope = None; id=0; desc } in*)
   match root with
   | Union [] -> None
   | Union ((_,t)::_) -> type_of_term t
@@ -21,12 +21,17 @@ let rec type_of_term root =
   (* | BinOp (_,_,_,t) *)
   | Lambda {lam_typ = t}
   | Call (_,_,t) -> Some t
-  | Builtin BiEq ->
-      (* TODO: achtung *)
-      let a = var "a" in
-      Some (wrap @@  Tarrow (Nolabel, a, a, Cok))
-  | Builtin BiPlus ->
-      Some (wrap @@  Tarrow (Nolabel, Predef.type_int, Predef.type_int, Cok))
+  | Builtin b -> match b with
+  | BiPhysEq
+  | BiStructEq -> Some Vpredef.type_eq
+  | BiMinus
+  | BiPlus -> Some Vpredef.type_int_arith
+  | BiLT | BiLE | BiGE
+  | BiGT -> Some Vpredef.type_int_cmp
+  | BiOr
+  | BiAnd -> Some Vpredef.logical_and
+  | BiNeg -> Some Vpredef.logical_neg
+
   (* | _ -> failwiths "Not implemented %s %d" __FILE__ __LINE__ *)
 
 (** Simplification *)
@@ -51,14 +56,14 @@ let eval_builtin = function
 
 let simplify_term t =
   let rec helper = function
-  | Call (Builtin (BiPlus as op, _typ1), [l;r], _typ2) ->
+  | Call (Builtin (BiPlus as op), [l;r], _typ2) ->
       wrapInt l r
         ~ok:(fun m n -> CInt (m+n))
-        ~fail:(fun l r -> Call (Builtin (op, _typ1), [l;r], _typ2) )
-  | Call (Builtin (BiMinus as op, _typ1), [l;r], _typ2) ->
+        ~fail:(fun l r -> Call (Builtin op, [l;r], _typ2) )
+  | Call (Builtin (BiMinus as op), [l;r], _typ2) ->
       wrapInt l r
         ~ok:(fun m n -> CInt (m-n))
-        ~fail:(fun l r -> Call (Builtin (op, _typ1), [l;r], _typ2) )
+        ~fail:(fun l r -> Call (Builtin op, [l;r], _typ2) )
   | term -> term
   and wrapInt l r ~ok ~fail =
     match (helper l, helper r) with
@@ -105,11 +110,18 @@ let call fexpr args typ =
 let cint n = CInt n
 let cbool b = CBool b
 let cunit = Unit
-let lambda lam_is_rec lam_argname lam_api lam_eff lam_body lam_typ =
-  simplify_term @@ Lambda { lam_argname; lam_api; lam_eff; lam_body; lam_is_rec; lam_typ }
+let lambda lam_is_rec lam_argname ~arg_type lam_api lam_eff lam_body lam_typ =
+  simplify_term @@ Lambda
+    { lam_argname
+    ; lam_argtype=arg_type
+    ; lam_api; lam_eff; lam_body; lam_is_rec; lam_typ
+    }
 let li ?heap longident typ = LI (heap, longident, typ)
 let ident longident typ = Ident (longident, typ)
-let conj a b typ = Call (Builtin (BiAnd, assert false), [a;b], typ)
+let term_biAnd : term = Builtin BiAnd
+let conj a b term_typ =
+  Call (term_biAnd, [a;b], Predef.type_bool)
+
 
 let binop op a b typ = simplify_term @@ Call (op, [a;b], typ)
 let unop  op arg typ = simplify_term @@ Call (op, [arg], typ)
@@ -129,7 +141,7 @@ let union xs =
         List.concat_map xs ~f:(fun (g,t) ->
           match t with
           | Union inners -> List.map inners ~f:(fun (k,v) ->
-              let new_g = call (Builtin (BiAnd, None)) [g; k] Predef.type_bool in
+              let new_g = call (Builtin BiAnd) [g; k] Predef.type_bool in
               (simplify_term new_g, v)
             )
           | _ -> [ (g,t) ]
@@ -137,7 +149,7 @@ let union xs =
       in
       Union reduced
 let union2 g1 t1 g2 t2 = union [(g1,t1); (g2,t2)]
-let builtin op typ = Builtin (op, typ)
+(*let builtin op typ = Builtin (op, typ)*)
 
 let is_empty_union = function
   | Union [] -> true
@@ -149,6 +161,12 @@ let pf_term el = Term el
 let pf_not pf = simplify_pf @@ Not pf
 let pf_binop op f1 f2 = simplify_pf @@ LogicBinOp (op, f1, f2)
 *)
+let pf_binop op f1 f2 typ = call (Builtin op) [f1; f2] typ
+let pf_conj l r = pf_binop BiAnd l r Vpredef.type_bool
+let pf_not t =
+  call (Builtin BiNeg) [ t ] Vpredef.type_bool
+let pf_neq t1 t2 =
+  pf_not @@ call (Builtin BiStructEq) [ t1; t2 ] Vpredef.type_bool
 let pf_eq t1 t2 =
   (* if (String.equal (MyIdent.to_string id1) "loop_1637" &&
       String.equal (MyIdent.to_string id2) "ndx_1003"
@@ -156,8 +174,12 @@ let pf_eq t1 t2 =
   then assert false; *)
 
   (* TODO: simplify arguments *)
-  call (Builtin (BiEq, None)) [ t1; t2 ]
+  call (Builtin BiStructEq) [ t1; t2 ] Vpredef.type_bool
   (*simplify_pf @@ EQident (id1, id2)*)
+
+let pf_conj_list = function
+  | [] -> CBool true
+  | h::hs -> List.fold_left ~init:h hs ~f:pf_conj
 
 (*
 let pf_neq id1 id2 = simplify_pf @@ pf_not @@ EQident (id1, id2)
@@ -173,10 +195,10 @@ let his_empty = function
   | _ -> false
 let hempty : heap = HDefined []
 let hdefined xs = HDefined xs
-let rec hsingle name el : t =
+let rec hsingle name el typ : t =
   match el with
-  | Union gs -> HMerge (List.map gs ~f:(fun (gu,term) -> (gu, hsingle name term)))
-  | _ -> hdefined [(name,el)]
+  | Union gs -> HMerge (List.map gs ~f:(fun (gu,term) -> (gu, hsingle name term typ)))
+  | _ -> hdefined [(name,(typ,el))]
 let hmerge2 g1 h1 g2 h2 = HMerge [(g1,h1); (g2,h2)]
 let hmerge_list xs = HMerge xs
 let hcall f x = HCall (f,x)
@@ -270,12 +292,15 @@ let rec hdot_defined hs term =
       Format.eprintf "TODO: not implemented %s %d\n%!" __FILE__ __LINE__;
       term
 
-and read_ident_defined hs ident typ =
-  if List.Assoc.mem hs ident ~equal:MyIdent.equal
-  then List.Assoc.find_exn hs ident ~equal:MyIdent.equal
+and read_ident_defined hs loc typ =
+  if List.Assoc.mem hs loc ~equal:MyIdent.equal
+  then
+    let (typ2,term) = List.Assoc.find_exn hs loc ~equal:MyIdent.equal in
+    assert (GT.eq MyTypes.type_expr typ typ2);
+    term
   else
     let may_equal =
-      Defined.filter hs ~f:(fun (k,v) ->
+      Defined.filter hs ~f:(fun (k,(_,v)) ->
         match Option.map (type_of_term v) ~f:(types_hack typ) with
         | None -> (* union or something *) true
         | Some b -> b
@@ -283,15 +308,17 @@ and read_ident_defined hs ident typ =
     in
 
     (* We should return UNION here *)
-    let positives = List.filter_map may_equal ~f:(fun (k,v) ->
-      Some (pf_eq (Ident,k (Ident (ident, typ)), v)
+    let positives = List.filter_map may_equal ~f:(fun (k,(typk,v)) ->
+      Some (pf_eq (ident k typk) (ident loc typ), v)
     )
     in
-    let neg = pf_conj_list @@ List.map may_equal ~f:(fun (k,_) -> pf_not @@ pf_eq k ident) in
-    union @@ (neg, li ident typ) :: positives
+    let neg = pf_conj_list @@ List.map may_equal ~f:(fun (k,_) ->
+      pf_not @@ pf_eq (ident k typ) (ident loc typ) )
+    in
+    union @@ (neg, li loc typ) :: positives
 
 
-and write_ident_defined (hs: defined_heap) ident (newval: term) : defined_heap =
+and write_ident_defined (hs: defined_heap) loc (newval: term) typ: defined_heap =
   (* Format.printf "write_ident_defined:\n\theap keys = %a\n%!"
     (Format.pp_print_list ~pp_sep:(fun fmt () -> Format.fprintf fmt " ") (fun fmt (i,_) -> GT.fmt MyIdent.t fmt i)) hs;
   Format.printf "\tident is '%a'\n%!" (GT.fmt MyIdent.t) ident;
@@ -307,29 +334,33 @@ and write_ident_defined (hs: defined_heap) ident (newval: term) : defined_heap =
     | None -> (fun _ v -> print_endline "HERR"; true)
   in
   let (may_be_equal,new_hs) =
-    Defined.hacky_fold hs ~cond ~f:(fun k oldval -> union2 (pf_eq k ident) newval (pf_neq k ident) oldval)
+    Defined.hacky_fold hs ~cond
+      ~f:(fun k oldval ->
+            union2 (pf_eq  (ident k typ) (ident loc typ)) newval
+                   (pf_neq (ident k typ) (ident loc typ)) oldval)
   in
   if List.is_empty may_be_equal
   then (* it is absolutely new location *)
-    (ident, newval) :: hs
+    (loc, (typ,newval)) :: hs
   else
-    let negatives = pf_conj_list @@ List.map may_be_equal ~f:(fun k -> pf_not @@ pf_eq k ident) in
+    let negatives = pf_conj_list @@ List.map may_be_equal
+        ~f:(fun k -> pf_not @@ pf_eq (ident k typ) (ident loc typ))
+   in
     (* FIXME: in case of new location should it really be a union of 1 case ? *)
     let u = union [ (negatives, newval) (*; (pf_not neg, li ident) *) ] in
     (* Checking for empty union is important unless we want shitty shit in the result *)
     if is_empty_union u (* || Defined.has_key hs ident *)
-    then new_hs else (ident,u) :: new_hs
-
+    then new_hs else Defined.add new_hs loc u typ
 
 
 (**
  *
  *)
 and hcmps_defined ms ns : defined_heap =
-  fold_defined ns ~init:ms ~f:(fun acc (k,v) ->
-    let v = simplify_term @@ hdot_defined ms v in
+  fold_defined ns ~init:ms ~f:(fun acc (k,(typ, term)) ->
+    let v = simplify_term @@ hdot_defined ms term in
     (* Format.printf "\t\t\t\t v = %a\n%!" (GT.fmt Vtypes.term) v; *)
-    write_ident_defined acc k v
+    write_ident_defined acc k v typ
   )
 and hdot_generalized heap term =
   match heap with
@@ -357,8 +388,8 @@ and hcmps : heap -> heap -> heap = fun l r ->
         (* Format.printf "\t\t\t\t%a\n%!" (GT.fmt heap) ans; *)
         ans
     | (HDefined xs, HMerge phs) ->
-        hmerge_list @@ List.map phs ~f:(fun (pf,h) ->
-          ( simplify_pf @@ (GT.gmap Vtypes.pf) (hdot_defined xs) pf
+        hmerge_list @@ List.map phs ~f:(fun (g,h) ->
+          ( simplify_term @@ hdot_defined xs  g
           , hcmps l h )
         )
     | (HDefined _ as x, HCmps (HDefined _ as y, z)) -> hcmps (hcmps x y) z

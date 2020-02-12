@@ -95,8 +95,8 @@ let exec api texprs =
       | LI (Some (HDefined hs), id, _) ->
           let new_desc = next_heap_desc () in
           assert false
-      | Call (Builtin (BiGT, _), [a; b], _)
-      | Call (Builtin (BiLT, _), [b; a], _) ->
+      | Call (Builtin BiGT, [a; b], _)
+      | Call (Builtin BiLT, [b; a], _) ->
           VHC.E.gt (do_term a) (do_term b)
       | _ ->
           Format.printf "%a\n\n%!" Vtypes.fmt_term term;
@@ -124,7 +124,7 @@ let exec api texprs =
           let si =
             VHC.SI.find desc (fun tau x ->
               VHC.E.(switch_ident x @@
-                List.map xs ~f:(fun (id,t) -> (Ident.name id, do_term t))
+                List.map xs ~f:(fun (id,(_,t)) -> (Ident.name id, do_term t))
               ))
           in
           work_queue (si :: acc)
@@ -148,9 +148,9 @@ let exec api texprs =
           | exception Not_found ->
               Format.printf "%a\n\n%!" Vtypes.fmt_heap h;
               failwiths "TODO: %s %d" __FILE__ __LINE__
-          | (_, Lambda { lam_argname=Some arg_ident; lam_body; lam_eff }) ->
+          | (_, Lambda { lam_argname=Some arg_ident; lam_argtype; lam_body; lam_eff }) ->
               let new_descr = next_heap_desc () in
-              let arg_heap = Heap.hsingle arg_ident arg in
+              let arg_heap = Heap.hsingle arg_ident arg lam_argtype in
               (* enqueue argument initialization *)
               QoF.enqueue q (new_descr, HPArbitrary arg_heap, arg_heap);
               let f_descr = next_heap_desc () in
@@ -171,10 +171,10 @@ let exec api texprs =
                     let c = do_term guard_term in
                     VHC.E.(ite c todo acc)
                   )
-                ))
+                )
             in
             continue [si]
-          | ->
+          | _ ->
               failwiths "TODO: %s %d" __FILE__ __LINE__
         end
       | _ ->

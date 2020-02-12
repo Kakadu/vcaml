@@ -4,7 +4,7 @@
 
 (library
   (name vcore)
-  (modules vutils vtypes vHornClauses heap toCaml driver)
+  (modules vutils vpredef vtypes vHornClauses heap toCaml driver)
   (libraries str base compiler-libs.common fmt terminal_size GT)
   (flags (-strict-sequence -strict-formats -short-paths -keep-locs -open Base -w -3-9+32))
   (preprocess (pps GT.ppx ))

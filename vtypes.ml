@@ -114,10 +114,22 @@ type ('size, 'a) vector =
 (* **)
 type api = MyAPI of (rec_flag * term) MyIdent.Map.t
 and term =
+  (* Values specific to memory model *)
   (* int, bool and unit doesn't need types because we have them in Predef module *)
   | CInt  of GT.int
   | CBool of GT.bool
   | Unit
+  | Lambda of { lam_argname: MyIdent.t GT.option
+              ; lam_argtype: MyTypes.type_expr
+              ; lam_api    : api
+              ; lam_eff    : heap
+              ; lam_body   : term
+              ; lam_is_rec : GT.bool
+              ; lam_typ    : MyTypes.type_expr
+              }
+   | Builtin of builtin
+
+  (* Values specific for symbolic execution *)
   (* TODO: Lazy Instantiation contains a context heap, identifier and type of that identifier
     In case of reading from defined heap (when we know all concrete heaps) the None will be stored
     and it will be most common case. In more complex situation (Composition or Mutation of heap)
@@ -125,24 +137,20 @@ and term =
    *)
   | LI    of heap GT.option * MyIdent.t * MyTypes.type_expr
   | Ident of MyIdent.t * MyTypes.type_expr
-  | Builtin of builtin
   (* types for builtin values are predefined *)
   | Call    of term * term GT.list * MyTypes.type_expr
   | Union   of (term * term) GT.list
-  | Lambda of { lam_argname: MyIdent.t GT.option
-              ; lam_api    : api
-              ; lam_eff    : heap
-              ; lam_body   : term
-              ; lam_is_rec : GT.bool
-              ; lam_typ    : MyTypes.type_expr
-              }
-and defined_heap = (MyIdent.t * term) GT.list
+
+and defined_heap = (MyIdent.t * (MyTypes.type_expr * term)) GT.list
+(* in general, defined heap is a mapping from identifiers to terms
+   We use a list for simplicity and store a type near the key
+*)
 and heap =
   (** Heap should be a mapping from terms to terms (array access, for example)
     * but for fibonacci it doesn't matter
     *)
   (* TODO: it should be path instead of ident here *)
-  | HDefined of (MyIdent.t * term) GT.list
+  | HDefined of defined_heap
   | HMerge of (term * heap) GT.list
   | HWrite of heap * MyIdent.t * term
   | HCmps of heap * heap
@@ -157,12 +165,12 @@ type t = heap
 module Defined = struct
   type t = defined_heap
   let filter = List.filter
-  let add xs k v =  (k,v) :: xs
+  let add xs k v typ =  (k, (typ,v)) :: xs
   let hacky_fold ~cond ~f xs =
-    List.fold_left xs ~init:([],[]) ~f:(fun (bad, acc) (k,v) ->
+    List.fold_left xs ~init:([],[]) ~f:(fun (bad, acc) (k,(_typ,v)) ->
       if cond k v
-      then (k::bad, add acc k (f k v))
-      else (bad,    add acc k v)
+      then (k::bad, add acc k (f k v) _typ)
+      else (bad,    add acc k v       _typ)
     )
   let has_key xs k =
     try ignore (List.Assoc.find_exn xs k ~equal:MyIdent.equal); true
@@ -170,11 +178,14 @@ module Defined = struct
 
   let equal xs ys ~f =
     Int.equal (List.length xs) (List.length ys) &&
-    List.for_all xs ~f:(fun (k,v) ->
+    List.for_all xs ~f:(fun (k,(_,v)) ->
       match List.Assoc.find ys ~equal:MyIdent.equal k with
       | None -> false
       | Some v2 -> f v v2
     )
+
+  let map_values h ~f =
+    List.map h (fun (ident, (typ, v)) -> (ident,(typ, f ident typ v)))
 end
 
 (* Pretty-printing boilerplate now *)
@@ -189,11 +200,12 @@ let fmt_builtin fmt = function
   | BiGT    -> Format.fprintf fmt ">"
   | BiLE    -> Format.fprintf fmt "≤"
   | BiGE    -> Format.fprintf fmt "≥"
-  | BiEq    -> Format.fprintf fmt "="
-  | BiOr    -> Format.fprintf fmt "||"
-  | BiAnd   -> Format.fprintf fmt "&&"
+  | BiPhysEq    -> Format.fprintf fmt "=="
+  | BiStructEq  -> Format.fprintf fmt "="
+  | BiOr      -> Format.fprintf fmt "||"
+  | BiAnd     -> Format.fprintf fmt "&&"
   | BiNeg     -> Format.fprintf fmt "not"
-  | BiStuctEq -> Format.fprintf fmt "="
+
 
 (*let fmt_logic_op fmt = function
   | Conj -> Format.fprintf fmt "∧"
@@ -241,9 +253,9 @@ class ['extra_term] my_fmt_term
   =
   object
     inherit  ['extra_term] fmt_term_t_stub _mutuals_pack as super
-    method! c_Lambda fmt _ _x__090_ _api heap term flg _ =
+    method! c_Lambda fmt _ argname _argtyp _api heap term flg _ =
       Format.fprintf fmt "(Lambda @[<v>{ ";
-      Format.fprintf fmt "@[lam_argname@ =@ %a@]@," (GT.fmt GT.option (GT.fmt MyIdent.t)) _x__090_;
+      Format.fprintf fmt "@[lam_argname@ =@ %a@]@," (GT.fmt GT.option (GT.fmt MyIdent.t)) argname;
       (* Format.fprintf fmt "@[; @[lam_api@ =@ %a@]@]@," for_api _x__091_; *)
       Format.fprintf fmt "@[; @[lam_eff@ =@ %a@]@]@,"  for_heap heap;
       Format.fprintf fmt "@[; @[lam_body@ =@ %a@]@]@," fself_term term;
@@ -280,11 +292,16 @@ class ['extra_term] my_fmt_term
       match f with
       | Ident (id, typ) ->
           Format.fprintf fmt "Call@ @[@,%a,@,@ (%a@,)@]" fself_term f (GT.fmt GT.list fself_term) args
-      | Builtin BiEq ->
-          assert (List.length args = 2);
-          let l = List.hd_exn args in
-          let r = List.nth_exn args 1 in
-          Format.fprintf fmt "@[(%a@ =@ %a)@]" fself_term l fself_term r
+          | Builtin BiStructEq ->
+              assert (List.length args = 2);
+              let l = List.hd_exn args in
+              let r = List.nth_exn args 1 in
+              Format.fprintf fmt "@[(%a@ =@ %a)@]" fself_term l fself_term r
+    | Builtin BiPhysEq ->
+        assert (List.length args = 2);
+        let l = List.hd_exn args in
+        let r = List.nth_exn args 1 in
+        Format.fprintf fmt "@[(%a@ ==@ %a)@]" fself_term l fself_term r
       | Builtin BiLE ->
           assert (List.length args = 2);
           let l = List.hd_exn args in
@@ -310,7 +327,7 @@ let hack_rec_flg fmt = function
   | Nonrecursive ->  Format.fprintf fmt "↦"
 
 class ['extra_api] my_fmt_api
-    ((for_api, for_defined_heap, for_heap, for_term) as _mutuals_pack)
+    ((for_api, (for_defined_heap: _ -> defined_heap -> _), for_heap, for_term) as _mutuals_pack)
   =
   object
     inherit  ['extra_api] fmt_api_t_stub _mutuals_pack
@@ -338,26 +355,19 @@ class ['extra_api] my_fmt_api
   end
 
 class ['extra_defined_heap] my_fmt_defined_heap
-    ((for_api, for_defined_heap, for_heap, for_term) as _mutuals_pack)
+    ((for_api, (for_defined_heap: _ -> defined_heap -> _), for_heap, for_term) as _mutuals_pack)
   =
   object
     inherit  [Format.formatter,'extra_defined_heap,unit] defined_heap_t
     constraint 'extra_defined_heap = defined_heap
-(*    inherit  (([(MyIdent.t * term),'extra_defined_heap] GT.fmt_list_t)
-      (fun _x__530_ ->
-         fun (_x__531_, _x__532_) ->
-           Format.fprintf _x__530_ "@[(@,%a,@,@ %a@,)@]"
-             (fun inh___533_ ->
-                fun subj___534_ -> GT.fmt MyIdent.t inh___533_ subj___534_)
-             _x__531_ fmt_term _x__532_)
-      for_defined_heap)*)
 
     method c_Nil fmt _ = Format.fprintf fmt "@[ε@]"
-    method c_Cons fmt _ (hi,ht) xs =
+    method c_Cons fmt _ ((hi,(_htyp,hterm)) as head) (xs: defined_heap) =
+      let (_: (MyIdent.t * (MyTypes.type_expr * term)) ) = head in
       Format.open_hvbox 0;
       (* Format.fprintf fmt   "\x1b[31m"; *)
-      Format.fprintf fmt   "@[<hov>⟦ @[⦗%a,@ %a⦘@]@]" (GT.fmt MyIdent.t) hi for_term ht;
-      List.iter xs ~f:(fun (ident,term) ->
+      Format.fprintf fmt   "@[<hov>⟦ @[⦗%a,@ %a⦘@]@]" (GT.fmt MyIdent.t) hi for_term hterm;
+      List.iter xs ~f:(fun (ident,(_typ,term)) ->
         Format.fprintf fmt "@[<hov>; @[⦗%a,@ %a⦘@]@]" (GT.fmt MyIdent.t) ident for_term term
       );
 (*      Format.fprintf fmt   "\x1b[31m";*)
@@ -368,14 +378,12 @@ class ['extra_defined_heap] my_fmt_defined_heap
 
   end
 
-
-class ['extra_t] my_fmt_heap ((for_api, for_defined_heap, for_heap, for_term) as _mutuals_pack)
+class ['extra_t] my_fmt_heap ((for_api, (for_defined_heap: _ -> defined_heap -> _), for_heap, for_term) as _mutuals_pack)
   =
   object
     inherit  ['extra_t] fmt_heap_t_stub _mutuals_pack
 
-    method! c_HDefined fmt _ xs =
-    for_defined_heap fmt xs
+    method! c_HDefined fmt _ xs = for_defined_heap fmt xs
 
     method! c_HCmps fmt _ l r =
       Format.fprintf fmt "@[(%a@ ∘@ %a)@]" for_heap l for_heap r
@@ -424,13 +432,11 @@ let api = {
     GT.fix = fix_api;
     GT.plugins = (object method fmt = fmt_api end)
   }
-
 let t = {
     GT.gcata = gcata_t;
     GT.fix = fix_api;
     GT.plugins = (object method fmt = fmt_t end)
   }
-
 let term =  {
     GT.gcata = gcata_term;
     GT.fix = fix_api;
@@ -440,7 +446,17 @@ let term =  {
       method gmap  = term.plugins#gmap
     end
   }
-
+let defined_heap = {
+    GT.gcata = gcata_defined_heap;
+    GT.fix = fix_api;
+    GT.plugins =
+      (object
+         method compare = compare_defined_heap
+         method gmap = gmap_defined_heap
+         method eq = eq_defined_heap
+         method fmt = fmt_defined_heap
+       end)
+  }
 let heap = {
     GT.gcata = gcata_heap;
     GT.fix = fix_api;
