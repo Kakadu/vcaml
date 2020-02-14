@@ -132,7 +132,7 @@ and process_expr (api,heap) e =
       | (api, Some ident, rhs, heff) ->
           (* we don't care about isolation here, so we compose heaps with toplevel one *)
           let heap = Heap.hcmps heap heff in
-          let heap = Heap.hcmps heap (Heap.hsingle ident rhs) in
+          let heap = Heap.hcmps heap (Heap.hsingle ident rhs vb.vb_expr.exp_type) in
           (* we need to extend API before processing the body *)
           let api = Heap.Api.add api ident (recflg,rhs) in
           let api, heff3, ans = process_expr (api,heap) body in
@@ -154,7 +154,7 @@ and process_expr (api,heap) e =
 
     let api_1,h1,l2 = process_expr (api,heap) l in
     let api_2,h2,r2 = process_expr (api_1,h1) r in
-    (api_2, h2, Heap.binop (Heap.builtin op val_type) l2 r2 e.exp_type)
+    (api_2, h2, Heap.binop (Heap.builtin op) l2 r2 e.exp_type)
   end
   | Texp_apply ({exp_desc=Texp_ident(Pdot (Pident _ident,":="), _, _)},
                [(_,Some {exp_desc=Texp_ident(Pident ident,_,_)}); (_,Some rhs) ]) -> begin
@@ -162,7 +162,7 @@ and process_expr (api,heap) e =
     (* Format.eprintf "Tracing '%s'" (UntypeP.expr e); *)
     let api_1,h1,r1 = process_expr (api,heap) rhs in
     (* Format.eprintf "%s %d %a\n" __FILE__ __LINE__ Vtypes.t.GT.plugins#fmt h1; *)
-    let heap_ans = Heap.hcmps h1 (Heap.hsingle ident r1) in
+    let heap_ans = Heap.hcmps h1 (Heap.hsingle ident r1 rhs.exp_type) in
     (api_1, heap_ans, Heap.cunit)
     (* match Heap.Api.find_ident_exn api ident with
     | Heap.LI (h,ident) ->
@@ -177,7 +177,7 @@ and process_expr (api,heap) e =
   end
   | Texp_apply ({exp_desc=Texp_ident(Pdot (Pident _ident, "not"), _, {val_type})}, [ (_,Some rhs) ]) ->
     let api,h,r = process_expr (api,heap) rhs in
-    (api,h, Heap.unop (Heap.builtin Vtypes.BiNeg val_type) r Predef.type_bool)
+    (api,h, Heap.unop (Heap.builtin Vtypes.BiNeg) r Predef.type_bool)
 
   | Texp_apply ({exp_desc=Texp_ident(Pident ident,_,{val_type})}, [(Asttypes.Nolabel,Some arg)]) -> begin
     (* Now: real function application *)
@@ -198,12 +198,12 @@ and process_expr (api,heap) e =
         ( api
         , Heap.hcmps arg_eff (Heap.hcall (Heap.li ident val_type) [arg_evaled])
         , Heap.call (Heap.li ~heap ident val_type) [arg_evaled] e.exp_type)
-    | Vtypes.Lambda {lam_argname; lam_eff; lam_api; lam_body} ->
+    | Vtypes.Lambda {lam_argname; lam_argtype; lam_eff; lam_api; lam_body} ->
         (* Format.eprintf "%s %d\n%!" __FILE__ __LINE__; *)
         (* for nonrecursive lambdas we need to compose its effect after binding the argument *)
         let argb = match lam_argname with
           | None -> Heap.hempty
-          | Some argname -> Heap.hsingle argname arg_evaled
+          | Some argname -> Heap.hsingle argname arg_evaled lam_argtype
         in
         let env_h   = (heap %%% arg_eff) %%% argb in
         let app_eff = env_h %%% lam_eff in
@@ -267,8 +267,8 @@ and process_expr (api,heap) e =
             ~f:(fun ((api, eff, arg_bindings, func, lam_eff, lam_body, typ) as theacc) hterm tl k ->
                   (* We accumulate on the go  1) an effect 2) term 3) the non-applied arguments *)
                   match lam_body with
-                  | Vtypes.Lambda { lam_eff=next_eff; lam_body=next_body; lam_argname=(Some nextargname) } ->
-                    let xxx1 = Heap.hsingle nextargname hterm in
+                  | Vtypes.Lambda { lam_eff=next_eff; lam_body=next_body; lam_argname=(Some nextargname); lam_typ } ->
+                    let xxx1 = Heap.hsingle nextargname hterm lam_typ in
                     let next_bindings = arg_bindings %%% xxx1 in
                     (* acumulated evaluation effect is previous effect + substitution of arguments
                        + eff of applying next argument *)
@@ -343,26 +343,26 @@ and process_expr (api,heap) e =
 
   Returns [ warnings * structure_item * (propname option) ]
   *)
-let get_properies t =
+let get_properies root =
   let rgxp = Str.regexp "prop\\(\\.\\([a-zA-Z]+\\)\\)?" in
   let ans = ref [] in
-  let module ItArg = struct
-    include TypedtreeIter.DefaultIteratorArgument
-    let enter_structure_item si =
-      match si.str_desc with
-      | Tstr_attribute ({txt; loc}, PStr [e])
-          when Str.string_match rgxp txt 0 ->
-            let name = match Str.matched_group 2 txt with
-              | s -> Some s
-              | exception Not_found -> None
-            in
-            Base.Ref.replace ans (List.cons (loc, e, name))
-      | _ -> ()
-  end in
-  let module It =
-    TypedtreeIter.MakeIterator(ItArg)
+
+  let iterator =
+    { Tast_iterator.default_iterator with
+      structure_item = (fun self si ->
+        match si.str_desc with
+        | Tstr_attribute { attr_name={txt; loc}; attr_payload = PStr [e] }
+            when Str.string_match rgxp txt 0 ->
+              let name = match Str.matched_group 2 txt with
+                | s -> Some s
+                | exception Not_found -> None
+              in
+              Ref.replace ans (List.cons (loc, e, name))
+        | _ -> ()
+      )
+    }
   in
-  It.iter_structure t;
+  iterator.structure iterator root;
   !ans
 
 let hornize api exprs =
@@ -379,39 +379,39 @@ let hornize api exprs =
     | CBool b ->
         failwith "Don't know what to do with boolean terms"
 (*        VHC.T.bool b*)
-    | Call (Builtin (BiLE, _), [Ident (l,_); CInt r], _)
-    | Call (Builtin (BiGE, _), [CInt       r; Ident (l,_)], _) ->
+    | Call (Builtin BiLE, [Ident (l,_); CInt r], _)
+    | Call (Builtin BiGE, [CInt       r; Ident (l,_)], _) ->
         let name = MyIdent.to_string l in
         VHC.(F.le (T.var name) (T.int r))
 
-    | Call (Builtin (BiLE, _), [LI (_,l,_); CInt r], _)
-    | Call (Builtin (BiGE, _), [CInt     r; LI (_,l,_)], _) ->
+    | Call (Builtin BiLE, [LI (_,l,_); CInt r], _)
+    | Call (Builtin BiGE, [CInt     r; LI (_,l,_)], _) ->
         let name = MyIdent.to_string l in
         VHC.(F.le (T.var name) (T.int r))
 
-    | Call (Builtin (BiGT, _), [a; b], _)
-    | Call (Builtin (BiLT, _), [b; a], _) ->
+    | Call (Builtin BiGT, [a; b], _)
+    | Call (Builtin BiLT, [b; a], _) ->
         VHC.(F.gt (helper_term a) (helper_term b))
 
-    | Call (Builtin (BiEq, _), [LI (_,l,_); CInt r], _)
-    | Call (Builtin (BiEq, _), [CInt     r; LI (_,l,_)], _) ->
+    | Call (Builtin BiStructEq, [LI (_,l,_); CInt r], _)
+    | Call (Builtin BiStructEq, [CInt     r; LI (_,l,_)], _) ->
         let name = MyIdent.to_string l in
         VHC.(F.eq (T.var name) (T.int r))
 
-    | Call (Builtin (BiNeg, _), [ff], _) ->
+    | Call (Builtin BiNeg, [ff], _) ->
         VHC.F.neg (helper ff)
     (* | Call (Builtin (BiEq, _), [l;r], _) -> assert false *)
 
     | Call (LI (_,id,_), args, _) ->
         assert false
 
-    | Call (Builtin (BiEq, _), [l; r], _) ->
+    | Call (Builtin BiStructEq, [l; r], _) ->
         (* TODO: bubbling up of result from calls of orelational symbols *)
         VHC.F.eq (helper_term l) (helper_term r)
 
 
     (* (f arg arg2 = N) *)
-    | Call (Builtin (BiEq, _), [Call (LI (_,id,_), args, _); CInt r as rhs ], _) ->
+    | Call (Builtin BiStructEq, [Call (LI (_,id,_), args, _); CInt r as rhs ], _) ->
         let name = MyIdent.to_string id in
         VHC.(F.eq
               (T.call_uf name @@
@@ -427,9 +427,9 @@ let hornize api exprs =
     | CInt n           -> VHC.T.int n
     | Ident (id, _)    -> VHC.T.var (MyIdent.to_string id)
     | LI (None, id, _) -> VHC.T.var (MyIdent.to_string id)
-    | Call (Builtin (BiMinus, _), [l; r], _) ->
+    | Call (Builtin BiMinus, [l; r], _) ->
         VHC.(T.minus (helper_term l) (helper_term r))
-    | Call (Builtin (BiPlus, _), [l; r], _) ->
+    | Call (Builtin BiPlus, [l; r], _) ->
         VHC.(T.plus  (helper_term l) (helper_term r))
     | Call (LI (_,id,_), args, _) ->
         VHC.T.call_uf (MyIdent.to_string id) (List.map args ~f:helper_term)
@@ -441,7 +441,7 @@ let hornize api exprs =
   let clauses =
     let rec hack_clause term : VHC.formula list =
       match term with
-      | Vtypes.Call (Builtin (BiAnd, _), args, _)  ->
+      | Vtypes.Call (Builtin BiAnd, args, _)  ->
           List.map args ~f:helper
           (* helper n (term,name) Format.std_formatter *)
       | _ -> failwiths "TODO: %s %d" __FILE__ __LINE__
@@ -458,7 +458,7 @@ let hornize api exprs =
 
 
 
-let work { Misc.sourcefile = filename } (t: Typedtree.structure) =
+let work filename (t: Typedtree.structure) =
   let () =
     let sz = Option.value ~default:170 (Terminal_size.get_columns ()) in
     Format.printf "terminal width = %d\n%!" sz;
@@ -478,7 +478,7 @@ let work { Misc.sourcefile = filename } (t: Typedtree.structure) =
   let props = get_properies t in
   Format.printf "+++++ Typing %d properties\n%!" (List.length props);
   let ty_prop_exprs = List.map props ~f:(fun (loc, si, _name) ->
-    let (tstr, _tsgn, _newenv) = Typemod.type_structure t.str_final_env [si] loc in
+    let (tstr, _tsgn, _, _newenv) = Typemod.type_structure t.str_final_env [si] loc in
     match tstr.str_items with
     | [{str_desc=(Tstr_eval (e,_))}] ->
         let (api, heap, term) = process_expr (api,h) e in

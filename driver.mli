@@ -1,1 +1,1 @@
-val work: unit -> Typedtree.structure -> unit
+val work: string -> Typedtree.structure -> unit

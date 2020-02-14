@@ -1,8 +1,4 @@
 open Clflags
-open Compenv
-
-
-
 open Format
 open Compenv
 
@@ -17,30 +13,38 @@ let print_if ppf flag printer arg =
 
 let (++) x f = f x
 
+let wrap_exn exn =
+  match Location.error_of_exn exn with
+  | Some (`Ok e) -> Format.printf "%a\n%!" Location.report_error e
+  | _ -> raise exn
+
+
 let implementation ppf sourcefile outputprefix =
-  Compmisc.init_path false;
-  let modulename = module_of_filename ppf sourcefile outputprefix in
+  Compmisc.init_path ();
+  let modulename = module_of_filename sourcefile outputprefix in
   Env.set_unit_name modulename;
   let env = Compmisc.initial_env () in
   (* let where_to_print = match !output_name with Some s -> s | None -> failwith "output file not specified" in *)
   try
     let (typedtree, _coercion) =
-      Pparse.parse_implementation ~tool_name:"vcaml" ppf sourcefile
+      Pparse.parse_implementation ~tool_name:"vcaml" sourcefile
       ++ print_if ppf Clflags.dump_parsetree Printast.implementation
       ++ print_if ppf Clflags.dump_source Pprintast.structure
       ++ Typemod.type_implementation sourcefile outputprefix modulename env
       ++ print_if ppf Clflags.dump_typedtree
         Printtyped.implementation_with_coercion
     in
-    Vcore.Driver.work { Misc.sourcefile = sourcefile } typedtree
+    Vcore.Driver.work sourcefile typedtree
   with
     | Typetexp.Error (_loc,env,e) as exc ->
-      Typetexp.report_error env Format.std_formatter e;
+      wrap_exn exc;
+(*      Typetexp.report_error env Format.std_formatter e;*)
       Format.printf "\n%!";
       raise exc
-    | Typecore.Error (loc, env, err) ->
-        Location.print_error Format.std_formatter loc;
-        Typecore.report_error env Format.std_formatter err;
+    | Typecore.Error (loc, env, err) as exc ->
+        wrap_exn exc;
+(*        Location.print_error Format.std_formatter loc;*)
+(*        Typecore.report_error env Format.std_formatter err;*)
         exit 1
     | x -> raise x
 

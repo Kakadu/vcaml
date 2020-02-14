@@ -161,6 +161,7 @@ let pf_term el = Term el
 let pf_not pf = simplify_pf @@ Not pf
 let pf_binop op f1 f2 = simplify_pf @@ LogicBinOp (op, f1, f2)
 *)
+let builtin op = Builtin op
 let pf_binop op f1 f2 typ = call (Builtin op) [f1; f2] typ
 let pf_conj l r = pf_binop BiAnd l r Vpredef.type_bool
 let pf_not t =
