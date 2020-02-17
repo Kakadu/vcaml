@@ -82,6 +82,7 @@ let exec api texprs =
 
     let rec do_term term = match term with
       | CInt n           -> VHC.E.int n
+      | Ident (id,_)
       | LI (None, id, _) -> VHC.E.ident (MyIdent.to_string id)
       | LI (Some (HCmps (l,r) as heap), id, _) ->
           let new_desc = next_heap_desc () in
@@ -98,8 +99,27 @@ let exec api texprs =
       | Call (Builtin BiGT, [a; b], _)
       | Call (Builtin BiLT, [b; a], _) ->
           VHC.E.gt (do_term a) (do_term b)
+      | Call (Builtin BiGE, [a; b], _)
+      | Call (Builtin BiLE, [b; a], _) ->
+          VHC.E.ge (do_term a) (do_term b)
+      | Call (Builtin BiNeg, [a], _) ->
+          VHC.E.neg (do_term a)
+      | Call (Builtin BiAnd, [a; b], _) ->
+          VHC.E.and_ (do_term a) (do_term b)
+      | Call (Builtin BiStructEq, [a; b], _) ->
+          VHC.E.eq (do_term a) (do_term b)
+
+      | Union us ->
+          List.fold_right us
+            ~init: VHC.E.unreachable
+            ~f:(fun (guard_term, result_term) acc ->
+              let c = do_term guard_term in
+              let r = do_term result_term in
+              (* TODO: fix non-tail recursion *)
+              VHC.E.(ite c r acc)
+            )
       | _ ->
-          Format.printf "%a\n\n%!" Vtypes.fmt_term term;
+          Format.printf "\n%a\n\n%!" Vtypes.fmt_term term;
           failwiths "TODO: %s %d" __FILE__ __LINE__
     in
     let rec work_queue acc =

@@ -15,17 +15,16 @@ bug-reports: "https://github.com/Kakadu/vcaml/issues"
 dev-repo: "git+https://github.com/Kakadu/vcaml"
 
 depends: [ 
-  "ocaml" 
-  "ocamlfind" 
-  "base"
+  "ocaml"      { >= "4.09" }
+  "ocamlfind"  { build }
   "dune"       { build }
   "ppx_import" { build }
+  "base"
   "fmt"
   "GT"
   "terminal_size"
 ]
-build: [
-  [make]
-]
+build: ["dune" "build" "-p" name "-j" jobs]
+
 #install: [make "install"]
 

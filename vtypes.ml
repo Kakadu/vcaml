@@ -59,9 +59,9 @@ module MyTypes = struct
   let type_expr =
           { GT.gcata = (fun _ _ _ -> assert false)
           ; GT.plugins = object
-              method fmt fmt _ = Format.fprintf fmt "<a type>"
+              method fmt fmt = Format.fprintf fmt "%a" Printtyp.type_expr
               method gmap x = x
-              method eq = phys_equal
+              method eq = Pervasives.(=)
               method compare a b = GT.compare GT.int a.Types.id b.Types.id
           end
           ; GT.fix = (fun _ -> assert false)

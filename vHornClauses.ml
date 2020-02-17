@@ -296,7 +296,13 @@ module type ML_API = sig
   type si
   module E : sig
     val gt: expr -> expr -> expr
+    val ge: expr -> expr -> expr
+    val eq: expr -> expr -> expr
     val int: int -> expr
+
+    val neg: expr -> expr
+    val and_: expr -> expr -> expr
+
     val ident: string -> expr
     val app2 : expr -> expr -> expr
     val app  : expr -> expr list -> expr
@@ -334,6 +340,11 @@ module ML : ML_API = struct
         ans
 
     let gt = binop ">"
+    let ge = binop ">="
+    let and_ = binop "&&"
+    let eq = binop "="
+
+
     let app2 = binop ""
     let app f = function
       | [] -> f
@@ -343,29 +354,36 @@ module ML : ML_API = struct
     let find str_ndx fmt =
       Format.fprintf fmt "find_%s" str_ndx
 
+    let konst f = fun fmt () -> f fmt
+    let neg f fmt = Format.fprintf fmt "@[(not %a)@]" (konst f) ()
+
     let switch_ident scru cases fmt =
-      Format.fprintf fmt "@[(";
+      Format.fprintf fmt "@[<hov 2>(";
       List.iter cases ~f:(fun (id,e) ->
-        Format.fprintf fmt "if %s = %s@ "
+        Format.fprintf fmt "@[if %s = %s@ @]"
           scru id;
-        Format.fprintf fmt "then@ ";
+        Format.fprintf fmt "@[then@ @]";
         e fmt;
-        Format.fprintf fmt "@ else@ ";
+        Format.fprintf fmt "@[@ else@ @]";
       );
-      Format.fprintf fmt "else failwith \"unreachable\")@]"
+      Format.fprintf fmt "@[else failwith \"unreachable\")@]";
+      Format.fprintf fmt "@]"
 
     let ite c th el fmt =
-      let wrap f fmt () = f fmt in
-      Format.fprintf fmt "(if %a then %a else %a)" (wrap c) () (wrap th) () (wrap el) ()
+      Format.fprintf fmt "(if %a then %a else %a)" (konst c) () (konst th) () (konst el) ()
 
-    let unreachable fmt = Format.fprintf fmt "(failwith (Printf.sprintf \"unreachable %%s %%d\" __FILE__ __LINE__))"
+    let unreachable fmt =
+(*      Format.fprintf fmt "(failwith (Printf.sprintf \"unreachable %%s %%d\" __FILE__ __LINE__))"*)
+      Format.fprintf fmt "(failwith \"unreachable\""
     let todo fmt = Format.fprintf fmt "TODO"
   end
 
   module SI = struct
     let find name body fmt =
-      Format.fprintf fmt "@[let@ find_%s@ =@ fun " name;
-      body "tau" "x" fmt;
+      let tau = "tau" in
+      let x = "x" in
+      Format.fprintf fmt "@[let@ find_%s@ =@ fun %s %s -> " name tau x;
+      body tau x fmt;
       Format.fprintf fmt "@]"
 
     let assert_ ?name vars expr fmt =

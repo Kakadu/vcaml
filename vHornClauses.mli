@@ -45,7 +45,13 @@ module type ML_API = sig
   type si
   module E : sig
     val gt: expr -> expr -> expr
+    val ge: expr -> expr -> expr
+    val eq: expr -> expr -> expr
     val int: int -> expr
+
+    val neg: expr -> expr
+    val and_: expr -> expr -> expr
+
     val ident: string -> expr
     val app2 : expr -> expr -> expr
     val app : expr -> expr list -> expr

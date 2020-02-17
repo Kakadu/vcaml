@@ -268,6 +268,8 @@ let types_hack : Types.type_expr -> Types.type_expr -> bool = fun typ1 typ2 ->
     true
   else false
 
+exception TypesShouldBeSame of MyTypes.type_expr * MyTypes.type_expr
+
 (* FAT dot a.k.a. • *)
 let rec hdot_defined hs term =
   match term with
@@ -297,7 +299,10 @@ and read_ident_defined hs loc typ =
   if List.Assoc.mem hs loc ~equal:MyIdent.equal
   then
     let (typ2,term) = List.Assoc.find_exn hs loc ~equal:MyIdent.equal in
-    assert (GT.eq MyTypes.type_expr typ typ2);
+    (*if not (GT.eq MyTypes.type_expr typ typ2)
+      then raise (TypesShouldBeSame (typ, typ2));*)
+    (* TODO: equality doesn't work as expected. It seem that structual equality
+      is not a right thing here *)
     term
   else
     let may_equal =
@@ -467,3 +472,19 @@ module Api = struct
 
 
 end
+
+let report_error = function
+  | TypesShouldBeSame (t1, t2) ->
+      Location.errorf ~loc:Location.none
+       "@[Types mismatch %a@ and %a@]"
+       (GT.fmt MyTypes.type_expr) t1
+       (GT.fmt MyTypes.type_expr) t2
+  | _ -> assert false
+
+let () =
+  Location.register_error_of_exn (fun x ->
+(*    Format.printf "%s %d\n%!" __FILE__ __LINE__;*)
+    match x with
+    | TypesShouldBeSame (_,_) as err -> Some (report_error err)
+    | _ -> None
+  )
