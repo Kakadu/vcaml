@@ -85,7 +85,8 @@ and process_vb (api,heap) recflg { vb_pat; vb_expr; _ } : Heap.Api.t * MyIdent.t
       let (api,eff,ans) = process_expr (api, Heap.hempty) vb_expr in
       FCPM.is_caml_ref vb_expr
         ~ok:(fun _ ->
-              (api, Some ident, ans, heap %%% eff %%% (Heap.hsingle ident ans vb_expr.exp_type))
+              ( Heap.Api.mark_unique api ident
+              , Some ident, ans, heap %%% eff %%% (Heap.hsingle ident ans vb_expr.exp_type) )
           )
         (fun () -> (api, Some ident, ans, heap %%% eff) )
       (* (api, Some ident, ans, heap %%% eff) *)
@@ -113,7 +114,7 @@ and process_expr (api,heap) e =
         (* Processing `fun () -> c_rhs` *)
     let api, h, ans = process_expr (api,heap) c_rhs in
     (* Format.eprintf "%s %d %a\n%!" __FILE__ __LINE__ Vtypes.t.GT.plugins#fmt h; *)
-    (api, Heap.hempty, Heap.lambda false None ~arg_type:Vpredef.type_unit (fst api) h ans e.exp_type)
+    (api, Heap.hempty, Heap.lambda false None ~arg_type:Vpredef.type_unit Heap.Api.(api.api) h ans e.exp_type)
 
   | Texp_function { param; cases=[{c_guard=None; c_lhs={pat_desc=Tpat_var(argname,_)}; c_rhs}] } ->
         (* Processing `fun argname -> c_rhs` *)
@@ -125,7 +126,7 @@ and process_expr (api,heap) e =
       | Tarrow (_,arg,_,_) -> arg
       | _ -> failwith "Can get type of function's argument. should not happen"
       in
-      (api, Heap.hempty, Heap.lambda false (Some argname) ~arg_type (fst api) h ans e.exp_type)
+      (api, Heap.hempty, Heap.lambda false (Some argname) ~arg_type Heap.Api.(api.api) h ans e.exp_type)
 
   | Texp_let (recflg, [vb], body) -> begin
       match process_vb (api,heap) recflg vb with
@@ -467,7 +468,7 @@ let work filename (t: Typedtree.structure) =
   Format.printf "**** Final Heap\n%!";
   Format.printf "%a\n\n%!" Vtypes.fmt_heap h;
   Format.printf "**** Final API\n%!";
-  Format.printf "%a\n\n%!" Vtypes.fmt_api (fst api);
+  Format.printf "%a\n\n%!" Vtypes.fmt_api Heap.Api.(api.api);
 
   let props = get_properies t in
   Format.printf "+++++ Typing %d properties\n%!" (List.length props);

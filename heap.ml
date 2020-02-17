@@ -34,7 +34,55 @@ let rec type_of_term root =
 
   (* | _ -> failwiths "Not implemented %s %d" __FILE__ __LINE__ *)
 
+module Api = struct
+  type ident_info = { ii_unique: bool }
+  type t =
+    { api: api
+    ; pending: MyIdent.t list
+    ; ii:      ident_info Ident.Map.t
+    }
+  let empty: t = { api = MyAPI MyIdent.Map.empty; pending = []; ii = Ident.Map.empty }
+
+  (* let fold_api ~f ~init xs = List.fold_left ~f ~init xs *)
+  let add ({api = MyAPI api } as a) k v =
+    { a with api = MyAPI (MyIdent.Map.add k v api) }
+
+  let add_pending api new_ = {api with pending = new_ :: api.pending }
+
+  let remove_pending_exn api el =
+    { api with pending = List.filter api.pending ~f:(MyIdent.equal el) }
+
+  let is_pending { pending } ident : bool =
+    Base.List.exists pending ~f:(MyIdent.equal ident)
+  (* let is_pending_lident (_,xs) (lident: Longident.t) : MyIdent.t option =
+    assert false *)
+
+  let is_recursive_exn { api = MyAPI api; pending } ident =
+    List.mem pending ident ~equal:MyIdent.equal ||
+    match MyIdent.Map.find ident api  with
+    | (Recursive,_) -> true
+    | (Nonrecursive,_) -> false
+
+  let find_ident_exn : t -> Ident.t -> rec_flag * term = fun { api = MyAPI api } ident ->
+    MyIdent.Map.find ident api
+
+    (* List.find_map_exn api ~f:(fun (k,flg,t) ->
+      if MyIdent.equal ident k
+      then Some (flg,t)
+      else None
+    ) *)
+    (* List.find_exn api ~f:(fun (k,flg,t) -> )
+    List.Assoc.find_exn ~equal:MyIdent.equal api ident *)
+  let find_ident_li : t -> Ident.t -> MyTypes.type_expr -> term = fun api ident typ ->
+    try snd @@ find_ident_exn api ident
+    with Not_found -> LI (None, ident, typ)
+
+  let mark_unique api id =
+    { api with ii = Ident.Map.add id { ii_unique = true } api.ii }
+end
+
 (** Simplification *)
+
 (* let eval_binop = function
   | Plus  -> (fun x y -> CInt  (x+y))
   | Minus -> (fun x y -> CInt  (x-y))
@@ -434,44 +482,6 @@ let bubble_disj_term troot =
   in
   helper troot
 
-module Api = struct
-  type t = api * MyIdent.t list
-  let empty: t = (MyAPI MyIdent.Map.empty, [])
-
-  (* let fold_api ~f ~init xs = List.fold_left ~f ~init xs *)
-  let add ((MyAPI api,pen):t) k v =
-    (MyAPI (MyIdent.Map.add k v api), pen)
-
-  let add_pending (api,xs) new_ = (api,new_::xs)
-
-  let remove_pending_exn (api,xs) el = (api, List.filter xs ~f:(MyIdent.equal el))
-
-  let is_pending (_,xs) ident : bool = Base.List.exists xs ~f:(MyIdent.equal ident)
-  (* let is_pending_lident (_,xs) (lident: Longident.t) : MyIdent.t option =
-    assert false *)
-
-  let is_recursive_exn (MyAPI api,pend) ident =
-    List.mem pend ident ~equal:MyIdent.equal ||
-    match MyIdent.Map.find ident api  with
-    | (Recursive,_) -> true
-    | (Nonrecursive,_) -> false
-
-  let find_ident_exn : t -> Ident.t -> rec_flag * term = fun (MyAPI api,_toplevel) ident ->
-    MyIdent.Map.find ident api
-
-    (* List.find_map_exn api ~f:(fun (k,flg,t) ->
-      if MyIdent.equal ident k
-      then Some (flg,t)
-      else None
-    ) *)
-    (* List.find_exn api ~f:(fun (k,flg,t) -> )
-    List.Assoc.find_exn ~equal:MyIdent.equal api ident *)
-  let find_ident_li : t -> Ident.t -> MyTypes.type_expr -> term = fun (api,toplevel) ident typ ->
-    try snd @@ find_ident_exn (api,toplevel) ident
-    with Not_found -> li ident typ
-
-
-end
 
 let report_error = function
   | TypesShouldBeSame (t1, t2) ->

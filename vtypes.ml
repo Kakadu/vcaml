@@ -51,7 +51,24 @@ module MyIdent = struct
         ; GT.fix = (fun _ -> assert false)
         }
   end
+  module Set = struct
+    include Ident.Set
 
+    class ['ia,'a,'sa, 'i, 'self, 'syn] t_t = object end
+    let gcata_t _ _ _ = assert false
+    let t =
+        { GT.gcata = gcata_t
+        ; GT.plugins = object
+            method fmt fa fmt o = Format.fprintf fmt "<indent_set>"
+            method gmap = Ident.Set.map
+            method eq fa = phys_equal
+            method compare l r =
+              comparison_of_int @@
+              Ident.Set.compare l r
+        end
+        ; GT.fix = (fun _ -> assert false)
+        }
+  end
 end
 module MyTypes = struct
   type type_expr = Types.type_expr
