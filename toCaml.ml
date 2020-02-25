@@ -82,6 +82,7 @@ let exec api texprs =
 
     let rec do_term term = match term with
       | CInt n           -> VHC.E.int n
+      | Link (_,t,_)       -> do_term t
       | Ident (id,_)
       | LI (None, id, _) -> VHC.E.ident (MyIdent.to_string id)
       | LI (Some (HCmps (l,r) as heap), id, _) ->
@@ -118,6 +119,7 @@ let exec api texprs =
               (* TODO: fix non-tail recursion *)
               VHC.E.(ite c r acc)
             )
+
       | _ ->
           Format.printf "\n%a\n\n%!" Vtypes.fmt_term term;
           failwiths "TODO: %s %d" __FILE__ __LINE__

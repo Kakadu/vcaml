@@ -49,6 +49,11 @@ let find_lident api heap ident typ =
       | (_,term) -> term
       | exception Not_found -> ident_not_found ident "find_lident: can't find on ident '%a'" MyIdent.pp_string ident
 
+let apply_old_api api term =
+  (* *)
+  term
+
+
 let rec process_str api { str_items; _ } : Heap.Api.t * Vtypes.t =
   List.fold_left ~init:(api, Heap.hempty) str_items
     ~f:(fun acc si ->
@@ -109,6 +114,13 @@ and process_expr (api,heap) e =
     (* TODO: use path here *)
     (* TODO: Where should I unroll functions? *)
     (* identifiers are returned as is. No inlining yet, even for functions *)
+
+    let t =
+      match find_lident api heap ident val_type with
+      | exception IdentNotFound (_,_)
+      | Vtypes.Lambda  _              -> Heap.li ident val_type
+      | t -> t
+    in
     (api, heap, Heap.li ident val_type)
   | Texp_function { cases=[{c_guard=None; c_lhs={pat_desc=Tpat_construct({txt=Lident "()"},_,[])}; c_rhs}] } ->
         (* Processing `fun () -> c_rhs` *)
@@ -144,8 +156,8 @@ and process_expr (api,heap) e =
 
   | Texp_apply ({exp_desc=Texp_ident(_,{txt=Lident "ref"},_)}, [(_,Some e)])
   | Texp_apply ({exp_desc=Texp_ident(_,{txt=Ldot(Lident _, "ref")},_)}, [(_,Some e)]) ->
-      (* Do we need explicit derefenrecing? *)
-      process_expr (api, heap) e
+      let api, h, t1 = process_expr (api, heap) e in
+      (api, h, Heap.link t1 e.exp_type)
   | Texp_apply ({exp_desc=Texp_ident(_,{txt=Lident opname},{val_type})}, [(_,Some l); (_,Some r) ])
         when Option.is_some (classify_binop opname) -> begin
     (* binop *)

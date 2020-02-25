@@ -1,7 +1,9 @@
-.PHONY: dep test tests celan
+OUT=./main.exe 
+
+.PHONY: dep test tests celan watch
 
 all:
-	@dune build ./main.exe
+	@dune build $(OUT)
 
 dep:
 	opam install . --deps-only --yes
@@ -9,6 +11,9 @@ dep:
 tests: test
 test:
 	@dune runtest
+
+watch:
+	dune build $(OUT) -w
 
 celan: clean
 clean:

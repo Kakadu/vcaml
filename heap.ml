@@ -18,11 +18,12 @@ let rec type_of_term root =
   | Unit    -> Some Predef.type_unit
   | LI (_,_,t)
   | Ident (_,t)
+  | Link (_,_,t)
   (* | BinOp (_,_,_,t) *)
   | Lambda {lam_typ = t}
   | Call (_,_,t) -> Some t
   | Builtin b -> match b with
-  | BiPhysEq
+(*  | BiPhysEq*)
   | BiStructEq -> Some Vpredef.type_eq
   | BiMinus
   | BiPlus -> Some Vpredef.type_int_arith
@@ -148,12 +149,13 @@ let simplify_guards gs =
   )
 *)
 
+let next_link_id : unit -> loc_id_t =
+  let c = ref 0 in
+  fun () ->
+    Int.incr c;
+    !c
+
 (** Term operations *)
-let call fexpr args typ =
-  (* Format.eprintf "constructing call of '%s' to '%s'\n" (pp_term () fexpr)  (pp_term () arg); *)
-  match args with
-  | [] -> fexpr
-  | args ->  simplify_term @@ Call (fexpr, args, typ)
 
 let cint n = CInt n
 let cbool b = CBool b
@@ -165,6 +167,7 @@ let lambda lam_is_rec lam_argname ~arg_type lam_api lam_eff lam_body lam_typ =
     ; lam_api; lam_eff; lam_body; lam_is_rec; lam_typ
     }
 let li ?heap longident typ = LI (heap, longident, typ)
+let link expr typ = Link (next_link_id(), expr, typ)
 let ident longident typ = Ident (longident, typ)
 let term_biAnd : term = Builtin BiAnd
 let conj a b term_typ =
@@ -173,6 +176,43 @@ let conj a b term_typ =
 
 let binop op a b typ = simplify_term @@ Call (op, [a;b], typ)
 let unop  op arg typ = simplify_term @@ Call (op, [arg], typ)
+
+let boolean b = CBool b
+let builtin op = Builtin op
+
+let are_two_links = function
+  | Link (_,_,_), Link(_,_,_) -> true
+  | _ -> false
+let same_idents = function
+  | Ident (x,_), Ident(y,_) when GT.eq MyIdent.t x y -> true
+  | LI(_,x,_), LI(_,y,_) when GT.eq MyIdent.t x y -> true
+  | _ -> false
+
+let call_deoptimized fexpr args typ =
+  (* TODO: add hash consing here *)
+  Call (fexpr, args, typ)
+
+let pf_eq t1 t2 =
+  (* if (String.equal (MyIdent.to_string id1) "loop_1637" &&
+      String.equal (MyIdent.to_string id2) "ndx_1003"
+    )
+  then assert false; *)
+  if are_two_links (t1,t2)
+  then boolean false
+  else if same_idents (t1,t2)
+  then boolean true
+  else
+      (* TODO: simplify arguments *)
+      call_deoptimized (Builtin BiStructEq) [ t1; t2 ] Vpredef.type_bool
+
+let tand t1 t2 =
+  match t1,t2 with
+  | CBool false, _
+  | _, CBool false -> t1
+  | CBool true,t2
+  | t2,CBool true -> t2
+  | _   ->
+      call_deoptimized (Builtin BiAnd) [t1; t2] Predef.type_bool
 
 let union xs =
   (* Printexc.print_raw_backtrace stdout (Printexc.get_callstack 2); *)
@@ -189,7 +229,7 @@ let union xs =
         List.concat_map xs ~f:(fun (g,t) ->
           match t with
           | Union inners -> List.map inners ~f:(fun (k,v) ->
-              let new_g = call (Builtin BiAnd) [g; k] Predef.type_bool in
+              let new_g = tand g k in
               (simplify_term new_g, v)
             )
           | _ -> [ (g,t) ]
@@ -209,26 +249,39 @@ let pf_term el = Term el
 let pf_not pf = simplify_pf @@ Not pf
 let pf_binop op f1 f2 = simplify_pf @@ LogicBinOp (op, f1, f2)
 *)
-let builtin op = Builtin op
-let pf_binop op f1 f2 typ = call (Builtin op) [f1; f2] typ
-let pf_conj l r = pf_binop BiAnd l r Vpredef.type_bool
-let pf_not t =
-  call (Builtin BiNeg) [ t ] Vpredef.type_bool
-let pf_neq t1 t2 =
-  pf_not @@ call (Builtin BiStructEq) [ t1; t2 ] Vpredef.type_bool
-let pf_eq t1 t2 =
-  (* if (String.equal (MyIdent.to_string id1) "loop_1637" &&
-      String.equal (MyIdent.to_string id2) "ndx_1003"
-    )
-  then assert false; *)
 
-  (* TODO: simplify arguments *)
-  call (Builtin BiStructEq) [ t1; t2 ] Vpredef.type_bool
-  (*simplify_pf @@ EQident (id1, id2)*)
+let neg_deoptimized t = call_deoptimized (Builtin BiNeg) [ t ] Vpredef.type_bool
+let pf_not t =
+  match t with
+  | Call (Builtin BiStructEq, [ t1; t2 ], _) when are_two_links (t1,t2) ->  boolean true
+  | Call (Builtin BiStructEq, [ t1; t2 ], _) when same_idents   (t1,t2) ->  boolean true
+  | CBool true -> boolean false
+  | CBool false -> boolean true
+  | _ -> neg_deoptimized t
+
+let call fexpr args typ =
+  (* Format.eprintf "constructing call of '%s' to '%s'\n" (pp_term () fexpr)  (pp_term () arg); *)
+  match args with
+  | [] -> fexpr
+  | args ->
+      match fexpr,args with
+      | (Builtin BiStructEq, [l;r]) -> pf_eq l r
+      | (Builtin BiAnd, [l;r]) -> tand l r
+      | (Builtin BiNeg, [x])   -> pf_not x
+      | _ -> call_deoptimized fexpr args typ
+
+let pf_neq t1 t2 =
+  call (builtin BiNeg) [ call (builtin BiStructEq) [t1; t2] Vpredef.type_bool ] Vpredef.type_bool
+
+let pf_binop op f1 f2 typ = call (Builtin op) [f1; f2] typ
+(*let pf_conj l r = pf_binop BiAnd l r Vpredef.type_bool*)
 
 let pf_conj_list = function
   | [] -> CBool true
-  | h::hs -> List.fold_left ~init:h hs ~f:pf_conj
+  | h::hs -> List.fold_left ~init:h hs ~f:tand
+
+(*let pf_neq t1 t2 =
+  pf_not @@ call_deoptimized (Builtin BiStructEq) [ t1; t2 ] Vpredef.type_bool*)
 
 (*
 let pf_neq id1 id2 = simplify_pf @@ pf_not @@ EQident (id1, id2)
@@ -324,6 +377,7 @@ let rec hdot_defined hs term =
   | LI (None, ident, typ) -> read_ident_defined hs ident typ
   | LI (Some hs2, ident, typ) ->
       read_generalized (hcmps (hdefined hs) hs2) ident typ
+  | Link (id, t, typ) -> Link (id, hdot_defined hs t, typ)
   | Ident (_, _) ->
     (* Terms that are concrente adn a priori known should not be affected my heap mutation *)
     term

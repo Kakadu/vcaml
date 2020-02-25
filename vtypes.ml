@@ -117,7 +117,7 @@ type builtin =
   (* logical operations *)
   | BiOr | BiAnd | BiNeg
   | BiStructEq
-  | BiPhysEq
+(*  | BiPhysEq*)
 [@@deriving gt ~options:{ fmt; gmap; eq; compare }]
 
 
@@ -127,6 +127,11 @@ type _ s = S : 'n -> 'n s
 type ('size, 'a) vector =
   | Nil  :                                          (z, 'a) vector
   | Cons : ('a * ('oldsize, 'a) vector) -> ('oldsize s, 'a) vector *)
+
+(* The index of memory location. Introduced because static names seems
+ * to be not emough
+ *)
+type loc_id_t = GT.int [@@deriving gt ~options:{fmt; eq; gmap; compare}]
 
 (* **)
 type api = MyAPI of (rec_flag * term) MyIdent.Map.t
@@ -144,7 +149,9 @@ and term =
               ; lam_is_rec : GT.bool
               ; lam_typ    : MyTypes.type_expr
               }
-   | Builtin of builtin
+  | Builtin of builtin
+  | Link of loc_id_t * term * MyTypes.type_expr (*  maybe add readable name? *)
+
 
   (* Values specific for symbolic execution *)
   (* TODO: Lazy Instantiation contains a context heap, identifier and type of that identifier
@@ -217,7 +224,7 @@ let fmt_builtin fmt = function
   | BiGT    -> Format.fprintf fmt ">"
   | BiLE    -> Format.fprintf fmt "≤"
   | BiGE    -> Format.fprintf fmt "≥"
-  | BiPhysEq    -> Format.fprintf fmt "=="
+(*  | BiPhysEq    -> Format.fprintf fmt "=="*)
   | BiStructEq  -> Format.fprintf fmt "="
   | BiOr      -> Format.fprintf fmt "||"
   | BiAnd     -> Format.fprintf fmt "&&"
@@ -279,6 +286,7 @@ class ['extra_term] my_fmt_term
       Format.fprintf fmt "@[; @[lam_is_rec@ =@ %b@]@]" flg;
       Format.fprintf fmt "})@]"
     method! c_Builtin fmt me op = super#c_Builtin fmt me op
+    method! c_CBool    fmt _  b = Format.fprintf fmt "%b" b
     (* method! c_BinOp fmt _ op l r _typ =
       Format.fprintf fmt "@[(@,%a@ %a@,@ %a)@]"
         fself_term l
@@ -288,6 +296,8 @@ class ['extra_term] my_fmt_term
       Format.fprintf fmt "@[(@,%a@ %a)@]"
         fself_term arg
         fmt_unop op *)
+    method! c_Link fmt _ idx t _ =
+      Format.fprintf fmt "@[RefLocation@ _.%d@ to@ %a@]" idx fself_term t
     method! c_CInt fmt _ n = Format.fprintf fmt "%d" n
     method! c_Ident fmt _ ident _typ =
       Format.fprintf fmt "@[\"%a\"@]" (GT.fmt MyIdent.t) ident
@@ -314,11 +324,13 @@ class ['extra_term] my_fmt_term
               let l = List.hd_exn args in
               let r = List.nth_exn args 1 in
               Format.fprintf fmt "@[(%a@ =@ %a)@]" fself_term l fself_term r
-    | Builtin BiPhysEq ->
+(*
+      | Builtin BiPhysEq ->
         assert (List.length args = 2);
         let l = List.hd_exn args in
         let r = List.nth_exn args 1 in
         Format.fprintf fmt "@[(%a@ ==@ %a)@]" fself_term l fself_term r
+        *)
       | Builtin BiLE ->
           assert (List.length args = 2);
           let l = List.hd_exn args in
