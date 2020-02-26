@@ -113,6 +113,8 @@ let exec api texprs =
       | Call (Builtin BiStructEq, [a; b], _) ->
           VHC.E.eq (do_term a) (do_term b)
 
+      | Call (LI (_, id,_), [ LI (_,arg,_)], _) ->
+          failwiths "I don't know what to write here %s %d" __FILE__ __LINE__
       | Union us ->
           List.fold_right us
             ~init: VHC.E.unreachable
@@ -122,9 +124,11 @@ let exec api texprs =
               (* TODO: fix non-tail recursion *)
               VHC.E.(ite c r acc)
             )
+      (*| Call (Ident (id,_),args,_) ->*)
 
       | _ ->
-          Format.printf "\n%a\n\n%!" Vtypes.fmt_term term;
+          Format.printf "\n%a\n%!"   (GT.fmt  Vtypes.term) term;
+          Format.printf "\n%s\n\n%!" (GT.show Vtypes.term term);
           failwiths "TODO: %s %d" __FILE__ __LINE__
     in
     let rec work_queue acc =

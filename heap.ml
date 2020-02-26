@@ -232,6 +232,8 @@ let tand t1 t2 = tands [t1; t2]
   | _   ->
       call_deoptimized (Builtin BiAnd) [t1; t2] Predef.type_bool*)
 
+let union_deoptimized gts = Union gts
+
 let union xs =
   (* Printexc.print_raw_backtrace stdout (Printexc.get_callstack 2); *)
   (* TODO: optimize Union [ ⦗("n_1635" < 0), x⦘; ⦗¬("n_1635" < 0), x⦘] *)
@@ -253,7 +255,8 @@ let union xs =
           | _ -> [ (g,t) ]
           )
       in
-      Union reduced
+      union_deoptimized @@ List.dedup_and_sort reduced
+        ~compare:(fun (a,_) (b,_) -> int_of_comparison @@ GT.compare term a b)
 let union2 g1 t1 g2 t2 = union [(g1,t1); (g2,t2)]
 (*let builtin op typ = Builtin (op, typ)*)
 
@@ -443,12 +446,16 @@ and read_ident_defined hs loc typ =
     in
     union @@ (neg, li loc typ) :: positives
 
-
-and write_ident_defined (hs: defined_heap) loc (newval: term) typ: defined_heap =
+and write_ident_defined hs loc newval typ =
+  let ans = write_ident_defined_helper hs loc newval typ in
+  assert (Defined.no_paired_bindings ans);
+  ans
+and write_ident_defined_helper (hs: defined_heap) loc (newval: term) typ: defined_heap =
   (* Format.printf "write_ident_defined:\n\theap keys = %a\n%!"
     (Format.pp_print_list ~pp_sep:(fun fmt () -> Format.fprintf fmt " ") (fun fmt (i,_) -> GT.fmt MyIdent.t fmt i)) hs;
   Format.printf "\tident is '%a'\n%!" (GT.fmt MyIdent.t) ident;
   Format.printf "\tterm is '%a'\n%!" (GT.fmt Vtypes.term) newval; *)
+  let hs = Defined.remove_key hs loc in
   let cond  =
     match type_of_term newval with
     | Some typ -> begin

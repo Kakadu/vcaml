@@ -117,11 +117,12 @@ and process_expr (api,heap) e =
 
     let t =
       match find_lident api heap ident val_type with
+      | Link (_,_,_) as lnk -> lnk
       | exception IdentNotFound (_,_)
-      | Vtypes.Lambda  _              -> Heap.li ident val_type
-      | t -> t
+      | Vtypes.Lambda  _
+      | _ -> Heap.li ident val_type
     in
-    (api, heap, Heap.li ident val_type)
+    (api, heap, t)
   | Texp_function { cases=[{c_guard=None; c_lhs={pat_desc=Tpat_construct({txt=Lident "()"},_,[])}; c_rhs}] } ->
         (* Processing `fun () -> c_rhs` *)
     let api, h, ans = process_expr (api,heap) c_rhs in

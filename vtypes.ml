@@ -25,6 +25,7 @@ module MyIdent = struct
   let t = { GT.gcata = (fun _ _ _ -> assert false)
           ; GT.plugins = object
               method fmt fmt o = Format.fprintf fmt "%s" (Ident.unique_name o)
+              method show = Ident.unique_name
               method gmap (x: t) = x
               method eq = equal
               method compare x y =
@@ -42,6 +43,7 @@ module MyIdent = struct
         { GT.gcata = gcata_t
         ; GT.plugins = object
             method fmt fa fmt o = Format.fprintf fmt "<indent_map>"
+            method show _ _ = "<ident_map>"
             method gmap = Ident.Map.map
             method eq fa = phys_equal
             method compare fa l r =
@@ -59,7 +61,8 @@ module MyIdent = struct
     let t =
         { GT.gcata = gcata_t
         ; GT.plugins = object
-            method fmt fa fmt o = Format.fprintf fmt "<indent_set>"
+            method fmt fa fmt o = Format.fprintf fmt "<ident_set>"
+            method show  _ = "<ident_set>"
             method gmap = Ident.Set.map
             method eq fa = phys_equal
             method compare l r =
@@ -77,6 +80,7 @@ module MyTypes = struct
           { GT.gcata = (fun _ _ _ -> assert false)
           ; GT.plugins = object
               method fmt fmt = Format.fprintf fmt "%a" Printtyp.type_expr
+              method show = Format.asprintf "%a" Printtyp.type_expr
               method gmap x = x
               method eq = Pervasives.(=)
               method compare a b = GT.compare GT.int a.Types.id b.Types.id
@@ -84,6 +88,8 @@ module MyTypes = struct
           ; GT.fix = (fun _ -> assert false)
           }
 end
+
+(*let (_:int) = GT.show MyIdent.Map.t*)
 
 let pp_longident () lident = Longident.flatten lident |> String.concat ~sep:"."
 
@@ -108,7 +114,7 @@ let pp_longident () lident = Longident.flatten lident |> String.concat ~sep:"."
               | MemBlock of { mem_tag: int; mem_sz: int; mem_cnt: mem_repr list }*)
 
 type rec_flag = Asttypes.rec_flag = Nonrecursive | Recursive
-  [@@deriving gt ~options:{ fmt; gmap; eq; compare }]
+  [@@deriving gt ~options:{ fmt; gmap; eq; compare; show }]
 
 type builtin =
   | BiPlus
@@ -118,7 +124,7 @@ type builtin =
   | BiOr | BiAnd | BiNeg
   | BiStructEq
 (*  | BiPhysEq*)
-[@@deriving gt ~options:{ fmt; gmap; eq; compare }]
+[@@deriving gt ~options:{ fmt; gmap; eq; compare; show }]
 
 
 (* type   z = Z
@@ -131,7 +137,7 @@ type ('size, 'a) vector =
 (* The index of memory location. Introduced because static names seems
  * to be not emough
  *)
-type loc_id_t = GT.int [@@deriving gt ~options:{fmt; eq; gmap; compare}]
+type loc_id_t = GT.int [@@deriving gt ~options:{fmt; eq; gmap; compare; show}]
 
 (* **)
 type api = MyAPI of (rec_flag * term) MyIdent.Map.t
@@ -181,10 +187,10 @@ and heap =
   | HCall of term * term GT.list
   (* Mutation: when we fill the holes in right heap by terms from left heap *)
   (* | HMutation of t * t  *)
-[@@deriving gt ~options:{ fmt; eq; gmap; compare }]
+[@@deriving gt ~options:{ show; fmt; eq; gmap; compare }]
 
 type t = heap
-[@@deriving gt ~options:{ fmt; eq; gmap; compare }]
+[@@deriving gt ~options:{ show; fmt; eq; gmap; compare }]
 
 module Defined = struct
   type t = defined_heap
@@ -200,6 +206,8 @@ module Defined = struct
     try ignore (List.Assoc.find_exn xs k ~equal:MyIdent.equal); true
     with Not_found -> false
 
+  let remove_key xs id = List.filter xs ~f:(fun (id2,t) -> not @@ GT.eq MyIdent.t id id2)
+
   let equal xs ys ~f =
     Int.equal (List.length xs) (List.length ys) &&
     List.for_all xs ~f:(fun (k,(_,v)) ->
@@ -210,6 +218,11 @@ module Defined = struct
 
   let map_values h ~f =
     List.map h (fun (ident, (typ, v)) -> (ident,(typ, f ident typ v)))
+
+  let no_paired_bindings xs =
+    if List.contains_dup xs ~compare:(fun (a,_) (b,_) -> int_of_comparison @@ GT.compare MyIdent.t a b)
+    then false
+    else true
 end
 
 (* Pretty-printing boilerplate now *)
@@ -318,7 +331,7 @@ class ['extra_term] my_fmt_term
     method c_Call fmt _ f args _typ =
       match f with
       | Ident (id, typ) ->
-          Format.fprintf fmt "Call@ @[@,%a,@,@ (%a@,)@]" fself_term f (GT.fmt GT.list fself_term) args
+          Format.fprintf fmt "Call@ @[<h2>@,%a,@,@ (%a@,)@]" fself_term f (GT.fmt GT.list fself_term) args
           | Builtin BiStructEq ->
               assert (List.length args = 2);
               let l = List.hd_exn args in
@@ -348,7 +361,7 @@ class ['extra_term] my_fmt_term
           assert (List.length args = 1);
           Format.fprintf fmt "@[¬(%a)@]" fself_term (List.hd_exn args)
       | _ ->
-          Format.fprintf fmt "Call@ @[@,%a,@,@ (%a@,)@]" fself_term f (GT.fmt GT.list fself_term) args
+          Format.fprintf fmt "Call@ @[<h>@,%a,@,@ (%a@,)@]" fself_term f (GT.fmt GT.list fself_term) args
   end
 
 let hack_rec_flg fmt = function
@@ -459,7 +472,10 @@ let fmt_term eta =
 let api = {
     GT.gcata = gcata_api;
     GT.fix = fix_api;
-    GT.plugins = (object method fmt = fmt_api end)
+    GT.plugins = (object
+      method fmt = fmt_api
+      method show = api.plugins#show
+    end)
   }
 let t = {
     GT.gcata = gcata_t;
@@ -473,6 +489,8 @@ let term =  {
       method fmt = fmt_term
       method eq  = term.plugins#eq
       method gmap  = term.plugins#gmap
+      method compare = term.plugins#compare
+      method show = term.plugins#show
     end
   }
 let defined_heap = {
@@ -484,6 +502,7 @@ let defined_heap = {
          method gmap = gmap_defined_heap
          method eq = eq_defined_heap
          method fmt = fmt_defined_heap
+         method show = defined_heap.plugins#show
        end)
   }
 let heap = {
@@ -494,6 +513,7 @@ let heap = {
       method eq      = eq_heap
       method gmap    = gmap_heap
       method compare = compare_heap
+      method show = heap.plugins#show
     end
   }
 
