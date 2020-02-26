@@ -105,8 +105,11 @@ let exec api texprs =
           VHC.E.ge (do_term a) (do_term b)
       | Call (Builtin BiNeg, [a], _) ->
           VHC.E.neg (do_term a)
-      | Call (Builtin BiAnd, [a; b], _) ->
-          VHC.E.and_ (do_term a) (do_term b)
+      | Call (Builtin BiAnd, [], _) ->
+          failwiths "TODO: %s %d" __FILE__ __LINE__
+      | Call (Builtin BiAnd, x::xs, _) ->
+          List.map xs ~f:do_term |>
+          List.fold_left ~init:(do_term x) ~f:VHC.E.and_
       | Call (Builtin BiStructEq, [a; b], _) ->
           VHC.E.eq (do_term a) (do_term b)
 

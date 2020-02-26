@@ -1,5 +1,6 @@
 open Vtypes
 open Vpredef
+open Vutils
 
 let pp_term () t =
   Format.asprintf "%a" term.GT.plugins#fmt t
@@ -205,14 +206,31 @@ let pf_eq t1 t2 =
       (* TODO: simplify arguments *)
       call_deoptimized (Builtin BiStructEq) [ t1; t2 ] Vpredef.type_bool
 
-let tand t1 t2 =
+let tands ts =
+  let ifempty ~k = function
+  | [] -> boolean false
+  | xs -> k xs
+  in
+  ifempty ts ~k:(fun ts ->
+      List.foldk ts ~init:[]
+        ~f:(fun acc x xs k ->
+          match x with
+          | CBool false as rez -> rez
+          | CBool true -> k acc
+          | _ -> k (x::acc)
+        )
+        ~finish:(ifempty ~k:(fun xs -> call_deoptimized (Builtin BiAnd) xs Predef.type_bool) )
+  )
+
+let tand t1 t2 = tands [t1; t2]
+  (*
   match t1,t2 with
   | CBool false, _
   | _, CBool false -> t1
   | CBool true,t2
   | t2,CBool true -> t2
   | _   ->
-      call_deoptimized (Builtin BiAnd) [t1; t2] Predef.type_bool
+      call_deoptimized (Builtin BiAnd) [t1; t2] Predef.type_bool*)
 
 let union xs =
   (* Printexc.print_raw_backtrace stdout (Printexc.get_callstack 2); *)
