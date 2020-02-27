@@ -1,16 +1,8 @@
+let x = ref 400
 
 
-
-let rec loop n =
-  let a = ref 0 in
-
-(*  let inner x =
-    a := !a + x
-  in
-
-  inner n;*)
-  let b = a in
-  n
+let loop n =
+  !x + n
 
 
 [@@@ prop.main (fun n -> loop n > 0)]

@@ -89,8 +89,6 @@ module MyTypes = struct
           }
 end
 
-(*let (_:int) = GT.show MyIdent.Map.t*)
-
 let pp_longident () lident = Longident.flatten lident |> String.concat ~sep:"."
 
 (*type logic_op = Conj | Disj
@@ -310,7 +308,7 @@ class ['extra_term] my_fmt_term
         fself_term arg
         fmt_unop op *)
     method! c_Link fmt _ idx t _ =
-      Format.fprintf fmt "@[RefLocation@ _.%d@ to@ %a@]" idx fself_term t
+      Format.fprintf fmt "@[(RefLocation@ _.%d@ to@ %a)@]" idx fself_term t
     method! c_CInt fmt _ n = Format.fprintf fmt "%d" n
     method! c_Ident fmt _ ident _typ =
       Format.fprintf fmt "@[\"%a\"@]" (GT.fmt MyIdent.t) ident
@@ -349,6 +347,16 @@ class ['extra_term] my_fmt_term
           let l = List.hd_exn args in
           let r = List.nth_exn args 1 in
           Format.fprintf fmt "@[(%a@ ≤@ %a)@]" fself_term l fself_term r
+      | Builtin BiMinus ->
+          assert (List.length args = 2);
+          let l = List.hd_exn args in
+          let r = List.nth_exn args 1 in
+          Format.fprintf fmt "@[(%a@ -@ %a)@]" fself_term l fself_term r
+      | Builtin BiPlus ->
+          assert (List.length args = 2);
+          let l = List.hd_exn args in
+          let r = List.nth_exn args 1 in
+          Format.fprintf fmt "@[(%a@ +@ %a)@]" fself_term l fself_term r
       | Builtin (BiAnd as op) ->
           assert (List.length args > 0);
           Format.fprintf fmt "@[(";

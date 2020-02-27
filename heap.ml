@@ -536,10 +536,10 @@ and hcmps : heap -> heap -> heap = fun l r ->
     | HMerge _, HDefined _ -> HCmps (l,r)
     | HWrite _, HDefined _ -> HCmps (l,r)
   in
-  Format.printf "calling hcmps of\n%!";
+(*  Format.printf "calling hcmps of\n%!";
   Format.fprintf Format.std_formatter "\t%s\n%!" (pp_heap () l);
   Format.printf "\t%s\n%!" (pp_heap () r);
-  Format.printf "\tresult = %s\n%!" (pp_heap () ans);
+  Format.printf "\tresult = %s\n%!" (pp_heap () ans);*)
   ans
 
 let hdot heap term =

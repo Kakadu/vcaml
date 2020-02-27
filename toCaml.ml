@@ -113,8 +113,27 @@ let exec api texprs =
       | Call (Builtin BiStructEq, [a; b], _) ->
           VHC.E.eq (do_term a) (do_term b)
 
-      | Call (LI (_, id,_), [ LI (_,arg,_)], _) ->
-          failwiths "I don't know what to write here %s %d" __FILE__ __LINE__
+      | Call (Builtin BiPlus, [a; b], _) ->
+      (*| Call ( Ident (id,_), [b; a], _) when String.equal (Ident.name id) "+"->*)
+          VHC.E.binop "+" (do_term a) (do_term b)
+
+      | Call (LI (_, ident,_), [ LI (_,argid,_) as arg], _) -> begin
+          match Heap.Api.find_ident_exn api ident with
+          | exception Not_found ->
+              Format.printf "%a\n\n%!" Vtypes.fmt_term term;
+              failwiths "TODO: %s %d" __FILE__ __LINE__
+          | (_, Lambda { lam_argname=Some arg_ident; lam_argtype; lam_body; lam_eff }) ->
+              let new_descr = next_heap_desc () in
+              let arg_heap = Heap.hsingle arg_ident arg lam_argtype in
+              (* enqueue argument initialization *)
+              QoF.enqueue q (new_descr, HPArbitrary arg_heap, arg_heap);
+              let f_descr = next_heap_desc () in
+              QoF.enqueue q (f_descr, HPIdent ident, lam_eff);
+              VHC.E.find f_descr
+              (* TODO: Apply `find` to something?*)
+           | _ ->
+              failwiths "I don't know what to write here %s %d" __FILE__ __LINE__
+        end
       | Union us ->
           List.fold_right us
             ~init: VHC.E.unreachable

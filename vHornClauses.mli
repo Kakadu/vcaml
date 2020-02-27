@@ -47,6 +47,7 @@ module type ML_API = sig
     val gt: expr -> expr -> expr
     val ge: expr -> expr -> expr
     val eq: expr -> expr -> expr
+    val binop: string -> expr -> expr -> expr
     val int: int -> expr
 
     val neg: expr -> expr

@@ -114,7 +114,7 @@ and process_expr (api,heap) e =
     (* TODO: use path here *)
     (* TODO: Where should I unroll functions? *)
     (* identifiers are returned as is. No inlining yet, even for functions *)
-
+    Format.printf "HERR: %a\n%!" (GT.fmt MyIdent.t) ident;
     let t =
       match find_lident api heap ident val_type with
       | Link (_,_,_) as lnk -> lnk
@@ -477,9 +477,9 @@ let work filename (t: Typedtree.structure) =
   Printtyped.implementation Format.std_formatter t;
   Format.printf "\n\n%!";
 
-  let api,h = process_str Heap.Api.empty t in
+  let api,global_effect = process_str Heap.Api.empty t in
   Format.printf "**** Final Heap\n%!";
-  Format.printf "%a\n\n%!" Vtypes.fmt_heap h;
+  Format.printf "%a\n\n%!" Vtypes.fmt_heap global_effect;
   Format.printf "**** Final API\n%!";
   Format.printf "%a\n\n%!" Vtypes.fmt_api Heap.Api.(api.api);
 
@@ -489,7 +489,7 @@ let work filename (t: Typedtree.structure) =
     let (tstr, _tsgn, _, _newenv) = Typemod.type_structure t.str_final_env [si] loc in
     match tstr.str_items with
     | [{str_desc=(Tstr_eval (e,_))}] ->
-        let (api, heap, term) = process_expr (api,h) e in
+        let (api, heap, term) = process_expr (api,global_effect) e in
         (* TODO: check that API didn't change *)
         (* TODO: check that not new effects appeared *)
         (term, _name)
