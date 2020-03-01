@@ -137,6 +137,9 @@ type ('size, 'a) vector =
  *)
 type loc_id_t = GT.int [@@deriving gt ~options:{fmt; eq; gmap; compare; show}]
 
+type heap_loc = LoIdent of MyIdent.t | LoAddr of loc_id_t
+  [@@deriving gt ~options:{fmt; eq; gmap; compare; show}]
+
 (* **)
 type api = MyAPI of (rec_flag * term) MyIdent.Map.t
 and term =
@@ -163,13 +166,13 @@ and term =
     and it will be most common case. In more complex situation (Composition or Mutation of heap)
     Something will be stored there.
    *)
-  | LI    of heap GT.option * MyIdent.t * MyTypes.type_expr
+  | LI    of heap GT.option * heap_loc * MyTypes.type_expr
   | Ident of MyIdent.t * MyTypes.type_expr
   (* types for builtin values are predefined *)
   | Call    of term * term GT.list * MyTypes.type_expr
   | Union   of (term * term) GT.list
 
-and defined_heap = (MyIdent.t * (MyTypes.type_expr * term)) GT.list
+and defined_heap = (heap_loc * (MyTypes.type_expr * term)) GT.list
 (* in general, defined heap is a mapping from identifiers to terms
    We use a list for simplicity and store a type near the key
 *)
