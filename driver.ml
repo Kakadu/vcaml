@@ -37,9 +37,9 @@ let classify_binop = function
   | "="  -> None
   | _    -> None
 
-exception IdentNotFound of MyIdent.t  * string
-let ident_not_found ident fmt =
-  Format.ksprintf (fun s -> raise (IdentNotFound (ident,s))) fmt
+exception IdentNotFound of heap_loc  * string
+let ident_not_found loc fmt =
+  Format.ksprintf (fun s -> raise (IdentNotFound (loc, s))) fmt
 
 let find_lident api heap ident typ =
   match Heap.Api.is_pending api ident with
@@ -47,7 +47,7 @@ let find_lident api heap ident typ =
   | false ->
       match Heap.Api.find_ident_exn api ident with
       | (_,term) -> term
-      | exception Not_found -> ident_not_found ident "find_lident: can't find on ident '%a'" MyIdent.pp_string ident
+      | exception Not_found -> ident_not_found ident "find_lident: can't find on ident '%s'" (Heap.name_of_heap_loc ident)
 
 let apply_old_api api term =
   (* *)
@@ -67,7 +67,7 @@ and process_si (api,heap) { str_desc; _} : (Heap.Api.t * Vtypes.t) option =
   | Tstr_value (recflg, [vb]) -> begin
     match process_vb (api, Heap.hempty) recflg vb with
     | (api, Some ident, ans, heff) ->
-        Some  ( Heap.Api.add api ident (recflg, ans)
+        Some  ( Heap.Api.add api (Heap.heap_loc_of_ident ident) (recflg, ans)
               , Heap.hcmps heap heff)
     | _ -> assert false
   end
@@ -85,13 +85,13 @@ and process_vb (api,heap) recflg { vb_pat; vb_expr; _ } : Heap.Api.t * MyIdent.t
         | Nonrecursive -> api
         | Recursive ->
             (* let api = Heap.Api.add api ident (Heap.li ident) in *)
-            Heap.Api.add_pending api ident
+            Heap.Api.add_pending_ident api ident
       in
       let (api,eff,ans) = process_expr (api, Heap.hempty) vb_expr in
       FCPM.is_caml_ref vb_expr
         ~ok:(fun _ ->
-              ( Heap.Api.mark_unique api ident
-              , Some ident, ans, heap %%% eff %%% (Heap.hsingle ident ans vb_expr.exp_type) )
+              ( Heap.Api.mark_unique api (Heap.heap_loc_of_ident ident)
+              , Some ident, ans, heap %%% eff %%% (Heap.hsingle (Heap.heap_loc_of_ident ident) ans vb_expr.exp_type) )
           )
         (fun () -> (api, Some ident, ans, heap %%% eff) )
       (* (api, Some ident, ans, heap %%% eff) *)
@@ -116,11 +116,11 @@ and process_expr (api,heap) e =
     (* identifiers are returned as is. No inlining yet, even for functions *)
     Format.printf "HERR: %a\n%!" (GT.fmt MyIdent.t) ident;
     let t =
-      match find_lident api heap ident val_type with
-      | Link (_,_,_) as lnk -> lnk
+      match find_lident api heap (Heap.heap_loc_of_ident ident) val_type with
+      | Link (_,_) as lnk -> lnk
       | exception IdentNotFound (_,_)
       | Vtypes.Lambda  _
-      | _ -> Heap.li ident val_type
+      | _ -> Heap.li (Heap.heap_loc_of_ident ident) val_type
     in
     (api, heap, t)
   | Texp_function { cases=[{c_guard=None; c_lhs={pat_desc=Tpat_construct({txt=Lident "()"},_,[])}; c_rhs}] } ->
@@ -146,7 +146,7 @@ and process_expr (api,heap) e =
       | (api, Some ident, rhs, heff) ->
           (* we don't care about isolation here, so we compose heaps with toplevel one *)
           let heap = Heap.hcmps heap heff in
-          let heap = Heap.hcmps heap (Heap.hsingle ident rhs vb.vb_expr.exp_type) in
+          let heap = Heap.hcmps heap (Heap.hsingle (Heap.heap_loc_of_ident ident) rhs vb.vb_expr.exp_type) in
           (* we need to extend API before processing the body *)
           let api = Heap.Api.add api ident (recflg,rhs) in
           let api, heff3, ans = process_expr (api,heap) body in

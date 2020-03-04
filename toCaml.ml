@@ -9,7 +9,7 @@ let next_heap_desc =
   (fun () -> incr last; string_of_int !last)
 
 type heap_path =
-  | HPIdent of MyIdent.t
+  | HPIdent of heap_loc
   (* Identifier of function *)
   | HPDefined of Vtypes.defined_heap
   | HPArbitrary of Vtypes.heap
@@ -82,9 +82,12 @@ let exec api texprs =
 
     let rec do_term term = match term with
       | CInt n           -> VHC.E.int n
-      | Link (_,t,_)       -> do_term t
-      | Ident (id,_)
-      | LI (None, id, _) -> VHC.E.ident (MyIdent.to_string id)
+      | LI (None, LoAddr link_id, _)
+      | Link (link_id,_) -> VHC.E.link  link_id
+      | Ident (id, _)
+      | LI (None, LoIdent id, _) -> VHC.E.ident (MyIdent.to_string id)
+(*      | LI (None, id, _) -> VHC.E.ident (MyIdent.to_string id)*)
+
       | LI (Some (HCmps (l,r) as heap), id, _) ->
           let new_desc = next_heap_desc () in
           QoF.enqueue q (new_desc, HPArbitrary heap, heap);
@@ -124,7 +127,7 @@ let exec api texprs =
               failwiths "TODO: %s %d" __FILE__ __LINE__
           | (_, Lambda { lam_argname=Some arg_ident; lam_argtype; lam_body; lam_eff }) ->
               let new_descr = next_heap_desc () in
-              let arg_heap = Heap.hsingle arg_ident arg lam_argtype in
+              let arg_heap = Heap.hsingle (Heap.heap_loc_of_ident arg_ident) arg lam_argtype in
               (* enqueue argument initialization *)
               QoF.enqueue q (new_descr, HPArbitrary arg_heap, arg_heap);
               let f_descr = next_heap_desc () in
@@ -172,7 +175,7 @@ let exec api texprs =
           let si =
             VHC.SI.find desc (fun tau x ->
               VHC.E.(switch_ident x @@
-                List.map xs ~f:(fun (id,(_,t)) -> (Ident.name id, do_term t))
+                List.map xs ~f:(fun (id,(_,t)) -> (Heap.name_of_heap_loc id, do_term t))
               ))
           in
           work_queue (si :: acc)
@@ -198,7 +201,7 @@ let exec api texprs =
               failwiths "TODO: %s %d" __FILE__ __LINE__
           | (_, Lambda { lam_argname=Some arg_ident; lam_argtype; lam_body; lam_eff }) ->
               let new_descr = next_heap_desc () in
-              let arg_heap = Heap.hsingle arg_ident arg lam_argtype in
+              let arg_heap = Heap.hsingle (Heap.heap_loc_of_ident arg_ident) arg lam_argtype in
               (* enqueue argument initialization *)
               QoF.enqueue q (new_descr, HPArbitrary arg_heap, arg_heap);
               let f_descr = next_heap_desc () in

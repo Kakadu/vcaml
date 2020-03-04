@@ -13,13 +13,14 @@ let rec type_of_term root =
 (*  let wrap desc = { Types.level = 0; scope = None; id=0; desc } in*)
   match root with
   | Union [] -> None
+  | Link (_,None) -> None
   | Union ((_,t)::_) -> type_of_term t
   | CInt _  -> Some Predef.type_int
   | CBool _ -> Some Predef.type_bool
   | Unit    -> Some Predef.type_unit
   | LI (_,_,t)
   | Ident (_,t)
-  | Link (_,_,t)
+  | Link (_,Some t)
   (* | BinOp (_,_,_,t) *)
   | Lambda {lam_typ = t}
   | Call (_,_,t) -> Some t
@@ -40,33 +41,32 @@ module Api = struct
   type ident_info = { ii_unique: bool }
   type t =
     { api: api
-    ; pending: MyIdent.t list
-    ; ii:      ident_info Ident.Map.t
+    ; pending:  heap_loc list
+    ; ii:      ident_info HeapLocMap.t
     }
-  let empty: t = { api = MyAPI MyIdent.Map.empty; pending = []; ii = Ident.Map.empty }
+  let empty: t = { api = MyAPI HeapLocMap.empty; pending = []; ii = HeapLocMap.empty }
 
   (* let fold_api ~f ~init xs = List.fold_left ~f ~init xs *)
-  let add ({api = MyAPI api } as a) k v =
-    { a with api = MyAPI (MyIdent.Map.add k v api) }
+  let add ({api = MyAPI api } as a) key data =
+    { a with api = MyAPI (Map.add_exn api ~key ~data ) }
 
-  let add_pending api new_ = {api with pending = new_ :: api.pending }
+  let add_pending       api new_ = {api with pending = new_ :: api.pending }
+  let add_pending_ident api new_ = add_pending api (LoIdent new_)
 
   let remove_pending_exn api el =
-    { api with pending = List.filter api.pending ~f:(MyIdent.equal el) }
+    { api with pending = List.filter api.pending ~f:(GT.eq heap_loc el) }
 
   let is_pending { pending } ident : bool =
-    Base.List.exists pending ~f:(MyIdent.equal ident)
-  (* let is_pending_lident (_,xs) (lident: Longident.t) : MyIdent.t option =
-    assert false *)
+    List.exists pending ~f:(GT.eq heap_loc ident)
 
   let is_recursive_exn { api = MyAPI api; pending } ident =
-    List.mem pending ident ~equal:MyIdent.equal ||
-    match MyIdent.Map.find ident api  with
+    List.mem pending ident ~equal:(GT.eq heap_loc) ||
+    match Map.find_exn api ident with
     | (Recursive,_) -> true
     | (Nonrecursive,_) -> false
 
-  let find_ident_exn : t -> Ident.t -> rec_flag * term = fun { api = MyAPI api } ident ->
-    MyIdent.Map.find ident api
+  let find_ident_exn : t -> heap_loc -> rec_flag * term = fun { api = MyAPI api } ident ->
+    Map.find_exn api ident
 
     (* List.find_map_exn api ~f:(fun (k,flg,t) ->
       if MyIdent.equal ident k
@@ -75,12 +75,12 @@ module Api = struct
     ) *)
     (* List.find_exn api ~f:(fun (k,flg,t) -> )
     List.Assoc.find_exn ~equal:MyIdent.equal api ident *)
-  let find_ident_li : t -> Ident.t -> MyTypes.type_expr -> term = fun api ident typ ->
+  let find_ident_li : t -> heap_loc -> MyTypes.type_expr -> term = fun api ident typ ->
     try snd @@ find_ident_exn api ident
     with Not_found -> LI (None, ident, typ)
 
   let mark_unique api id =
-    { api with ii = Ident.Map.add id { ii_unique = true } api.ii }
+    { api with ii = Map.add_exn ~key:id ~data:{ ii_unique = true } api.ii }
 end
 
 (** Simplification *)
@@ -168,7 +168,8 @@ let lambda lam_is_rec lam_argname ~arg_type lam_api lam_eff lam_body lam_typ =
     ; lam_api; lam_eff; lam_body; lam_is_rec; lam_typ
     }
 let li ?heap longident typ = LI (heap, longident, typ)
-let link expr typ = Link (next_link_id(), expr, typ)
+let link id typ = Link (id, typ)
+let new_link typ = link (next_link_id()) typ
 let ident longident typ = Ident (longident, typ)
 let term_biAnd : term = Builtin BiAnd
 let conj a b term_typ =
@@ -182,11 +183,11 @@ let boolean b = CBool b
 let builtin op = Builtin op
 
 let are_two_links = function
-  | Link (_,_,_), Link(_,_,_) -> true
+  | Link (_,_), Link(_,_) -> true
   | _ -> false
 let same_idents = function
   | Ident (x,_), Ident(y,_) when GT.eq MyIdent.t x y -> true
-  | LI(_,x,_), LI(_,y,_) when GT.eq MyIdent.t x y -> true
+  | LI(_,x,_), LI(_,y,_) when GT.eq heap_loc x y -> true
   | _ -> false
 
 let call_deoptimized fexpr args typ =
@@ -390,6 +391,18 @@ let types_hack : Types.type_expr -> Types.type_expr -> bool = fun typ1 typ2 ->
     true
   else false
 
+
+let term_of_heap_loc loc typ =
+  match loc with
+  | LoIdent id -> ident id typ
+  | LoAddr addr_ndx -> link addr_ndx (Some typ)
+
+let heap_loc_of_ident id = LoIdent id
+let name_of_heap_loc = function
+  | LoIdent id -> Ident.name id
+  | LoAddr n -> Printf.sprintf "__loc_%d" n
+let pp_heap_loc fmt x = Format.fprintf fmt "%s" (name_of_heap_loc x)
+
 exception TypesShouldBeSame of MyTypes.type_expr * MyTypes.type_expr
 
 (* FAT dot a.k.a. • *)
@@ -398,7 +411,7 @@ let rec hdot_defined hs term =
   | LI (None, ident, typ) -> read_ident_defined hs ident typ
   | LI (Some hs2, ident, typ) ->
       read_generalized (hcmps (hdefined hs) hs2) ident typ
-  | Link (id, t, typ) -> Link (id, hdot_defined hs t, typ)
+  | Link (id, typ) -> Link (id, typ)
   | Ident (_, _) ->
     (* Terms that are concrente adn a priori known should not be affected my heap mutation *)
     term
@@ -419,15 +432,16 @@ let rec hdot_defined hs term =
       term
 
 and read_ident_defined hs loc typ =
-  if List.Assoc.mem hs loc ~equal:MyIdent.equal
+  if List.Assoc.mem hs loc ~equal:(GT.eq heap_loc)
   then
-    let (typ2,term) = List.Assoc.find_exn hs loc ~equal:MyIdent.equal in
+    let (typ2,term) = Defined.find_exn hs ~key:loc in
     (*if not (GT.eq MyTypes.type_expr typ typ2)
       then raise (TypesShouldBeSame (typ, typ2));*)
     (* TODO: equality doesn't work as expected. It seem that structual equality
       is not a right thing here *)
     term
   else
+    (* list of pairs (heap_loc*term) that can collide with location [loc] *)
     let may_equal =
       Defined.filter hs ~f:(fun (k,(_,v)) ->
         match Option.map (type_of_term v) ~f:(types_hack typ) with
@@ -436,13 +450,12 @@ and read_ident_defined hs loc typ =
       )
     in
 
-    (* We should return UNION here *)
-    let positives = List.filter_map may_equal ~f:(fun (k,(typk,v)) ->
-      Some (pf_eq (ident k typk) (ident loc typ), v)
+    let positives = Defined.filter_map may_equal ~f:(fun (k,(typk,v)) ->
+      Some (pf_eq (term_of_heap_loc k typk) (term_of_heap_loc loc typ), v)
     )
     in
     let neg = pf_conj_list @@ List.map may_equal ~f:(fun (k,_) ->
-      pf_not @@ pf_eq (ident k typ) (ident loc typ) )
+      pf_not @@ pf_eq (term_of_heap_loc k typ) (term_of_heap_loc loc typ) )
     in
     union @@ (neg, li loc typ) :: positives
 
@@ -469,15 +482,15 @@ and write_ident_defined_helper (hs: defined_heap) loc (newval: term) typ: define
   let (may_be_equal,new_hs) =
     Defined.hacky_fold hs ~cond
       ~f:(fun k oldval ->
-            union2 (pf_eq  (ident k typ) (ident loc typ)) newval
-                   (pf_neq (ident k typ) (ident loc typ)) oldval)
+            union2 (pf_eq  (term_of_heap_loc k typ) (term_of_heap_loc loc typ)) newval
+                   (pf_neq (term_of_heap_loc k typ) (term_of_heap_loc loc typ)) oldval)
   in
   if List.is_empty may_be_equal
   then (* it is absolutely new location *)
     (loc, (typ,newval)) :: hs
   else
     let negatives = pf_conj_list @@ List.map may_be_equal
-        ~f:(fun k -> pf_not @@ pf_eq (ident k typ) (ident loc typ))
+        ~f:(fun k -> pf_not @@ pf_eq (term_of_heap_loc k typ) (term_of_heap_loc loc typ))
    in
     (* FIXME: in case of new location should it really be a union of 1 case ? *)
     let u = union [ (negatives, newval) (*; (pf_not neg, li ident) *) ] in
