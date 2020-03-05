@@ -32,7 +32,7 @@ end = struct
         | GT.EQ -> 0
         | GT.GT -> 1
         | GT.LT -> -1
-        let sexp_of_t _ = failwith "not implemented"
+        let sexp_of_t _ = failwiths "not implemented %s %d" __FILE__ __LINE__
       end)
   end
 

@@ -56,14 +56,17 @@ module Api = struct
   let remove_pending_exn api el =
     { api with pending = List.filter api.pending ~f:(GT.eq heap_loc el) }
 
-  let is_pending { pending } ident : bool =
-    List.exists pending ~f:(GT.eq heap_loc ident)
+  let is_pending { pending } loc : bool =
+    List.exists pending ~f:(GT.eq heap_loc loc)
+  let is_pending_ident xs id = is_pending xs (LoIdent id)
 
   let is_recursive_exn { api = MyAPI api; pending } ident =
     List.mem pending ident ~equal:(GT.eq heap_loc) ||
     match Map.find_exn api ident with
     | (Recursive,_) -> true
     | (Nonrecursive,_) -> false
+
+  let is_recursive_ident_exn xs ident = is_recursive_exn xs (LoIdent ident)
 
   let find_ident_exn : t -> heap_loc -> rec_flag * term = fun { api = MyAPI api } ident ->
     Map.find_exn api ident
@@ -167,9 +170,12 @@ let lambda lam_is_rec lam_argname ~arg_type lam_api lam_eff lam_body lam_typ =
     ; lam_argtype=arg_type
     ; lam_api; lam_eff; lam_body; lam_is_rec; lam_typ
     }
-let li ?heap longident typ = LI (heap, longident, typ)
+let li ?heap loc typ = LI (heap, loc, typ)
+let li_ident ?heap longident typ = LI (heap, LoIdent longident, typ)
 let link id typ = Link (id, typ)
-let new_link typ = link (next_link_id()) typ
+let new_link typ =
+  let id = next_link_id() in
+  (id, link id typ)
 let ident longident typ = Ident (longident, typ)
 let term_biAnd : term = Builtin BiAnd
 let conj a b term_typ =

@@ -147,7 +147,9 @@ module HeapLocMap = struct
       include Comparator.Make(struct
         type nonrec t = t
         let compare a b = int_of_comparison @@ GT.compare heap_loc a b
-        let sexp_of_t _ = failwith "not implemented"
+        let sexp_of_t = function
+          | LoIdent id  -> Sexp.Atom (Format.asprintf "%a" (GT.fmt MyIdent.t) id)
+          | LoAddr addr -> Sexp.Atom (Format.asprintf "%a" (GT.fmt loc_id_t) addr)
       end)
   end
   type +'a t = (heap_loc, 'a, X.comparator_witness) Map.t
