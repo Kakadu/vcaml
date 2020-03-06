@@ -13,17 +13,16 @@ let rec type_of_term root =
 (*  let wrap desc = { Types.level = 0; scope = None; id=0; desc } in*)
   match root with
   | Union [] -> None
-  | Link (_,None) -> None
   | Union ((_,t)::_) -> type_of_term t
+  | Link (_, info) -> si_typ info
   | CInt _  -> Some Predef.type_int
   | CBool _ -> Some Predef.type_bool
   | Unit    -> Some Predef.type_unit
   | LI (_,_,t)
   | Ident (_,t)
-  | Link (_,Some t)
   (* | BinOp (_,_,_,t) *)
   | Lambda {lam_typ = t}
-  | Call (_,_,t) -> Some t
+  | Call (_,_,t) ->  si_typ t
   | Builtin b -> match b with
 (*  | BiPhysEq*)
   | BiStructEq -> Some Vpredef.type_eq
@@ -80,7 +79,7 @@ module Api = struct
     List.Assoc.find_exn ~equal:MyIdent.equal api ident *)
   let find_ident_li : t -> heap_loc -> MyTypes.type_expr -> term = fun api ident typ ->
     try snd @@ find_ident_exn api ident
-    with Not_found -> LI (None, ident, typ)
+    with Not_found -> LI (None, ident, make_sinfo ~typ ())
 
   let mark_unique api id =
     { api with ii = Map.add_exn ~key:id ~data:{ ii_unique = true } api.ii }
@@ -154,7 +153,7 @@ let simplify_guards gs =
 *)
 
 let next_link_id : unit -> loc_id_t =
-  let c = ref 0 in
+  let c = ref 400 in
   fun () ->
     Int.incr c;
     !c
@@ -170,7 +169,7 @@ let lambda lam_is_rec lam_argname ~arg_type lam_api lam_eff lam_body lam_typ =
     ; lam_argtype=arg_type
     ; lam_api; lam_eff; lam_body; lam_is_rec; lam_typ
     }
-let li ?heap loc typ = LI (heap, loc, typ)
+let li ?heap loc info = LI (heap, loc, info)
 let li_ident ?heap longident typ = LI (heap, LoIdent longident, typ)
 let link id typ = Link (id, typ)
 let new_link typ =
@@ -179,7 +178,7 @@ let new_link typ =
 let ident longident typ = Ident (longident, typ)
 let term_biAnd : term = Builtin BiAnd
 let conj a b term_typ =
-  Call (term_biAnd, [a;b], Predef.type_bool)
+  Call (term_biAnd, [a;b], make_sinfo ~typ:Predef.type_bool ())
 
 
 let binop op a b typ = simplify_term @@ Call (op, [a;b], typ)
@@ -211,7 +210,7 @@ let pf_eq t1 t2 =
   then boolean true
   else
       (* TODO: simplify arguments *)
-      call_deoptimized (Builtin BiStructEq) [ t1; t2 ] Vpredef.type_bool
+      call_deoptimized (Builtin BiStructEq) [ t1; t2 ] (make_sinfo ~typ:Predef.type_bool ())
 
 let tands ts =
   let ifempty ~k = function
@@ -226,7 +225,7 @@ let tands ts =
           | CBool true -> k acc
           | _ -> k (x::acc)
         )
-        ~finish:(ifempty ~k:(fun xs -> call_deoptimized (Builtin BiAnd) xs Predef.type_bool) )
+        ~finish:(ifempty ~k:(fun xs -> call_deoptimized (Builtin BiAnd) xs (make_sinfo ~typ:Predef.type_bool ())) )
   )
 
 let tand t1 t2 = tands [t1; t2]
@@ -278,7 +277,7 @@ let pf_not pf = simplify_pf @@ Not pf
 let pf_binop op f1 f2 = simplify_pf @@ LogicBinOp (op, f1, f2)
 *)
 
-let neg_deoptimized t = call_deoptimized (Builtin BiNeg) [ t ] Vpredef.type_bool
+let neg_deoptimized t = call_deoptimized (Builtin BiNeg) [ t ] (make_sinfo ~typ:Predef.type_bool ())
 let pf_not t =
   match t with
   | Call (Builtin BiStructEq, [ t1; t2 ], _) when are_two_links (t1,t2) ->  boolean true
@@ -298,8 +297,9 @@ let call fexpr args typ =
       | (Builtin BiNeg, [x])   -> pf_not x
       | _ -> call_deoptimized fexpr args typ
 
+let sinfo_bool = make_sinfo ~typ:Predef.type_bool ()
 let pf_neq t1 t2 =
-  call (builtin BiNeg) [ call (builtin BiStructEq) [t1; t2] Vpredef.type_bool ] Vpredef.type_bool
+  call (builtin BiNeg) [ call (builtin BiStructEq) [t1; t2] sinfo_bool ] sinfo_bool
 
 let pf_binop op f1 f2 typ = call (Builtin op) [f1; f2] typ
 (*let pf_conj l r = pf_binop BiAnd l r Vpredef.type_bool*)
@@ -385,23 +385,26 @@ and fat_dot_pf heap pf = match pf with
 and simplify_pf pf = pf
 *)
 
-let types_hack : Types.type_expr -> Types.type_expr -> bool = fun typ1 typ2 ->
-  (* Format.printf "types_hack '%a' and '%a'\n%!" Printtyp.type_expr typ1 Printtyp.type_expr typ2; *)
-  let s1 = Format.asprintf "%a" Printtyp.type_expr typ1 in
-  let s2 = Format.asprintf "%a" Printtyp.type_expr typ2 in
-  if phys_equal typ1 typ2
-    || (String.equal s1 "int" && String.equal s2 "int ref")
-    || (String.equal s2 "int" && String.equal s1 "int ref")
-  then
-    (* let () = Format.printf "It happend\n%!" in  *)
-    true
-  else false
+let types_hack info1 info2 =
+  match info1,info2 with
+  | (Some typ1, Some typ2) ->
+      (* Format.printf "types_hack '%a' and '%a'\n%!" Printtyp.type_expr typ1 Printtyp.type_expr typ2; *)
+      let s1 = Format.asprintf "%a" Printtyp.type_expr typ1 in
+      let s2 = Format.asprintf "%a" Printtyp.type_expr typ2 in
+      if phys_equal typ1 typ2
+        || (String.equal s1 "int" && String.equal s2 "int ref")
+        || (String.equal s2 "int" && String.equal s1 "int ref")
+      then
+        (* let () = Format.printf "It happend\n%!" in  *)
+        true
+      else false
+  | _ -> false
 
 
 let term_of_heap_loc loc typ =
   match loc with
   | LoIdent id -> ident id typ
-  | LoAddr addr_ndx -> link addr_ndx (Some typ)
+  | LoAddr addr_ndx -> link addr_ndx typ
 
 let heap_loc_of_ident id = LoIdent id
 let ident_of_heap_loc_exn = function
@@ -454,11 +457,7 @@ and read_ident_defined hs loc typ =
   else
     (* list of pairs (heap_loc*term) that can collide with location [loc] *)
     let may_equal =
-      Defined.filter hs ~f:(fun (k,(_,v)) ->
-        match Option.map (type_of_term v) ~f:(types_hack typ) with
-        | None -> (* union or something *) true
-        | Some b -> b
-      )
+      Defined.filter hs ~f:(fun (k,(_,v)) -> types_hack typ.si_typ (type_of_term v))
     in
 
     let positives = Defined.filter_map may_equal ~f:(fun (k,(typk,v)) ->
@@ -484,9 +483,7 @@ and write_ident_defined_helper (hs: defined_heap) loc (newval: term) typ: define
     match type_of_term newval with
     | Some typ -> begin
           fun _ v ->
-            match Option.map (type_of_term v) ~f:(types_hack typ) with
-            | None -> (* union or something *) true
-            | Some b -> b
+            types_hack (Some typ) (type_of_term v)
     end
     | None -> (fun _ v -> print_endline "HERR"; true)
   in
@@ -566,6 +563,8 @@ and hcmps : heap -> heap -> heap = fun l r ->
   Format.printf "\tresult = %s\n%!" (pp_heap () ans);*)
   ans
 
+let (%%%) = hcmps
+
 let rec hdot h t =
   match h,t with
   | HDefined [],_ -> t
@@ -573,9 +572,12 @@ let rec hdot h t =
   | _, Call (Builtin op, args, typ) ->
       call (Builtin op) (List.map args ~f:(hdot h)) typ
   | _, Link (loc,typ_opt) -> li (LoAddr loc) ~heap:h typ_opt
+  | _, LI (heap, loc, info) ->
+    li ~heap:(h %%% Option.value heap ~default:hempty) loc info
   | _ ->
-    Format.printf "hdot: heap = @[%a@]\n%!" (GT.fmt heap) h;
-    Format.printf "      term = @[%a@]\n%!" (GT.fmt term) t;
+    Format.printf "hdot: heap = @[%a@]\n%!" (GT.fmt  heap) h;
+    Format.printf "      term = @[%a@]\n%!" (GT.fmt  term) t;
+    Format.printf "           = @[%s@]\n%!" (GT.show term t);
     failwiths "not implemented %s %d" __FILE__ __LINE__
 
 (* let rec heap_subst heap lident new_term =

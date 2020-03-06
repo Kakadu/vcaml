@@ -85,7 +85,7 @@ let exec api texprs =
     let (_: string option) = assert_name in
 
     let rec do_term root_term =
-      Format.printf "do_term %a\n%!" (GT.fmt term) root_term;
+(*      Format.printf "do_term %a\n%!" (GT.fmt term) root_term;*)
       match root_term with
       | CInt n           -> VHC.E.int n
       | LI (None, LoAddr link_id, _)
@@ -161,14 +161,14 @@ let exec api texprs =
               VHC.E.(ite c r acc)
             )
       (*| Call (Ident (id,_),args,_) ->*)
-
+      | CBool b -> VHC.E.bool b
       | _ ->
           Format.printf "\n%a\n%!"   (GT.fmt  Vtypes.term) root_term;
           Format.printf "\n%s\n\n%!" (GT.show Vtypes.term root_term);
           failwiths "TODO: %s %d" __FILE__ __LINE__
     in
     let rec work_queue acc =
-      Format.printf "work_queue of length %d." (QoF.length q);
+(*      Format.printf "work_queue of length %d." (QoF.length q);*)
 
       let continue xs = work_queue (xs @ acc) in
       match QoF.dequeue q with

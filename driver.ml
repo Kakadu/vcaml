@@ -10,7 +10,8 @@ module UntypeP = struct
     Format.asprintf "%a" (Printast.expression 0) untyped;
 end
 
-let (%%%) = Heap.hcmps
+let (%%%) = Heap.(%%%)
+
 (* let is_arr expr =
   match expr.exp_type.Types.desc with
   | Tarrow (_,_,_,_) -> true
@@ -43,7 +44,7 @@ let ident_not_found loc fmt =
 
 let find_lident api heap ident typ =
   match Heap.Api.is_pending api ident with
-  | true -> Heap.li ~heap ident typ
+  | true -> Heap.li ~heap ident (make_sinfo ~typ ())
   | false ->
       match Heap.Api.find_ident_exn api ident with
       | (_,term) -> term
@@ -93,7 +94,9 @@ and process_vb (api,heap) recflg { vb_pat; vb_expr; _ } : Heap.Api.t * MyIdent.t
       FCPM.is_caml_ref vb_expr
         ~ok:(fun _ ->
               ( Heap.Api.mark_unique api (Heap.heap_loc_of_ident ident)
-              , Some ident, ans, heap %%% eff %%% (Heap.hsingle (Heap.heap_loc_of_ident ident) ans vb_expr.exp_type) )
+              , Some ident
+              , ans
+              , heap %%% eff %%% (Heap.hsingle (Heap.heap_loc_of_ident ident) ans (make_sinfo ~typ:vb_expr.exp_type ()) ))
           )
         (fun () -> (api, Some ident, ans, heap %%% eff) )
       (* (api, Some ident, ans, heap %%% eff) *)
@@ -124,14 +127,15 @@ and process_expr (api,heap) e =
       | Link (_,_) as lnk -> lnk
       | exception IdentNotFound (_,_)
       | Vtypes.Lambda  _
-      | _ -> Heap.li (Heap.heap_loc_of_ident ident) val_type
+      | _ -> Heap.li (Heap.heap_loc_of_ident ident) (make_sinfo ~typ:val_type ())
     in
     (api, heap, t)
   | Texp_function { cases=[{c_guard=None; c_lhs={pat_desc=Tpat_construct({txt=Lident "()"},_,[])}; c_rhs}] } ->
         (* Processing `fun () -> c_rhs` *)
     let api, h, ans = process_expr (api,heap) c_rhs in
     (* Format.eprintf "%s %d %a\n%!" __FILE__ __LINE__ Vtypes.t.GT.plugins#fmt h; *)
-    (api, Heap.hempty, Heap.lambda false None ~arg_type:Vpredef.type_unit Heap.Api.(api.api) h ans e.exp_type)
+    let arg_type = make_sinfo ~typ:Vpredef.type_unit () in
+    (api, Heap.hempty, Heap.lambda false None ~arg_type Heap.Api.(api.api) h ans (make_sinfo ~typ:e.exp_type ()))
 
   | Texp_function { param; cases=[{c_guard=None; c_lhs={pat_desc=Tpat_var(argname,_)}; c_rhs}] } ->
         (* Processing `fun argname -> c_rhs` *)
@@ -140,17 +144,17 @@ and process_expr (api,heap) e =
 
       (* Format.eprintf "%s %d %a\n%!" __FILE__ __LINE__ Vtypes.t.GT.plugins#fmt h; *)
       let arg_type = match e.exp_type.Types.desc with
-      | Tarrow (_,arg,_,_) -> arg
+      | Tarrow (_,arg,_,_) -> make_sinfo ~typ:arg ()
       | _ -> failwith "Can get type of function's argument. should not happen"
       in
-      (api, Heap.hempty, Heap.lambda false (Some argname) ~arg_type Heap.Api.(api.api) h ans e.exp_type)
+      (api, Heap.hempty, Heap.lambda false (Some argname) ~arg_type Heap.Api.(api.api) h ans (make_sinfo ~typ:e.exp_type ()))
 
   | Texp_let (recflg, [vb], body) -> begin
       match process_vb (api,heap) recflg vb with
       | (api, Some ident, rhs, heff) ->
           (* we don't care about isolation here, so we compose heaps with toplevel one *)
-          let heap = Heap.hcmps heap heff in
-          let heap = Heap.hcmps heap (Heap.hsingle (Heap.heap_loc_of_ident ident) rhs vb.vb_expr.exp_type) in
+          let heap = heap %%% heff in
+          let heap = heap %%% (Heap.hsingle (Heap.heap_loc_of_ident ident) rhs (make_sinfo ~typ:vb.vb_expr.exp_type ())) in
           (* we need to extend API before processing the body *)
           let api = Heap.Api.add api (Heap.heap_loc_of_ident ident) (recflg,rhs) in
           let api, heff3, ans = process_expr (api,heap) body in
@@ -162,8 +166,8 @@ and process_expr (api,heap) e =
   | Texp_apply ({exp_desc=Texp_ident(_,{txt=Lident "ref"},_)}, [(_,Some e)])
   | Texp_apply ({exp_desc=Texp_ident(_,{txt=Ldot(Lident _, "ref")},_)}, [(_,Some e)]) ->
       let api, h, t1 = process_expr (api, heap) e in
-      let (link_id, link) = Heap.new_link (Some e.exp_type) in
-      let eff = Heap.hsingle (LoAddr link_id) t1 e.exp_type in
+      let (link_id, link) = Heap.new_link (make_sinfo ~typ:e.exp_type ()) in
+      let eff = Heap.hsingle (LoAddr link_id) t1 (make_sinfo ~typ:e.exp_type ()) in
       (api, h %%% eff, link)
   | Texp_apply ({exp_desc=Texp_ident(_,{txt=Lident opname},{val_type})}, [(_,Some l); (_,Some r) ])
         when Option.is_some (classify_binop opname) -> begin
@@ -174,7 +178,7 @@ and process_expr (api,heap) e =
 
     let api_1,h1,l2 = process_expr (api,heap) l in
     let api_2,h2,r2 = process_expr (api_1,h1) r in
-    (api_2, h2, Heap.binop (Heap.builtin op) l2 r2 e.exp_type)
+    (api_2, h2, Heap.binop (Heap.builtin op) l2 r2 (make_sinfo ~typ:e.exp_type ()))
   end
   | Texp_apply ({exp_desc=Texp_ident(Pdot (Pident _ident,":="), _, _)},
                [(_,Some {exp_desc=Texp_ident(Pident ident,_,_)}); (_,Some rhs) ]) -> begin
@@ -182,7 +186,7 @@ and process_expr (api,heap) e =
     (* Format.eprintf "Tracing '%s'" (UntypeP.expr e); *)
     let api_1,h1,r1 = process_expr (api,heap) rhs in
     (* Format.eprintf "%s %d %a\n" __FILE__ __LINE__ Vtypes.t.GT.plugins#fmt h1; *)
-    let heap_ans = Heap.hcmps h1 (Heap.hsingle (Heap.heap_loc_of_ident ident) r1 rhs.exp_type) in
+    let heap_ans = h1 %%% Heap.hsingle (Heap.heap_loc_of_ident ident) r1 (make_sinfo ~typ:rhs.exp_type ()) in
     (api_1, heap_ans, Heap.cunit)
     (* match Heap.Api.find_ident_exn api ident with
     | Heap.LI (h,ident) ->
@@ -197,28 +201,29 @@ and process_expr (api,heap) e =
   end
   | Texp_apply ({exp_desc=Texp_ident(Pdot (Pident _ident, "not"), _, {val_type})}, [ (_,Some rhs) ]) ->
     let api,h,r = process_expr (api,heap) rhs in
-    (api,h, Heap.unop (Heap.builtin Vtypes.BiNeg) r Predef.type_bool)
+    (api, h, Heap.unop (Heap.builtin Vtypes.BiNeg) r Heap.sinfo_bool)
 
-  | Texp_apply ({exp_desc=Texp_ident(Pident fident,_,{val_type})}, [(Asttypes.Nolabel,Some arg)]) -> begin
+  | Texp_apply ({exp_desc=Texp_ident(Pident fident,_,{val_type=ftyp})}, [(Asttypes.Nolabel,Some arg)]) -> begin
     (* Now: real function application *)
     let api,arg_eff,arg_evaled = process_expr (api, Heap.hempty) arg in
     (* now we need to compose effect of e with effect of call
        But for recursive calls -- we shouldn't
      *)
-    match find_lident api heap (Heap.heap_loc_of_ident fident) val_type with
+    match find_lident api heap (Heap.heap_loc_of_ident fident) ftyp with
     | exception IdentNotFound (_,_) -> begin
         (* It could be a recursive call *)
         if Heap.Api.is_pending_ident api fident
-        then (api, heap, Heap.li (Heap.heap_loc_of_ident fident) val_type)
+        then (api, heap, Heap.li (Heap.heap_loc_of_ident fident) (make_sinfo ~typ:ftyp ()))
         else failwiths "(should not happen) not implemented %s %d" __FILE__ __LINE__
     end
 
     | Vtypes.Lambda  _ when Heap.Api.is_pending_ident api fident || Heap.Api.is_recursive_ident_exn api fident ->
         (* recursive functions we left as is *)
         let floc = Heap.heap_loc_of_ident fident in
+        let val_info = make_sinfo ~typ:ftyp () in
         ( api
-        , Heap.(hcmps arg_eff (hcall (li floc val_type) [arg_evaled]))
-        , Heap.(call (li ~heap floc val_type) [arg_evaled] e.exp_type))
+        , Heap.(hcmps arg_eff (hcall (li floc val_info) [arg_evaled]))
+        , Heap.(call (li ~heap floc val_info) [arg_evaled] val_info))
     | Vtypes.Lambda {lam_argname; lam_argtype; lam_eff; lam_api; lam_body} ->
         (* for nonrecursive lambdas we need to compose its effect after binding the argument *)
         let argb = match lam_argname with
@@ -233,7 +238,9 @@ and process_expr (api,heap) e =
         (* let app_eff = Heap.heap_subst argeff lam_argname ans in
         (api, app_eff, Heap.call (Heap.li ~heap ident) ans) *)
     | Vtypes.LI (h, ident, typ) as func ->
-        (api, Heap.hcmps arg_eff (Heap.hcall (Heap.li ident typ) [arg_evaled]), Heap.call func [arg_evaled] e.exp_type)
+        ( api
+        , arg_eff %%% Heap.hcall (Heap.li ident typ) [arg_evaled]
+        , Heap.call func [arg_evaled] (make_sinfo ~typ:e.exp_type ()) )
     (* | exception Not_found -> failwith (Printf.sprintf "Identifier unbound: '%a'" Vtypes.MyIdent.pp_string ident) *)
     | ans_term ->
         failwith (sprintf "typecheck error? should not happed. Searched for ident %a. Got '%a'"
@@ -252,7 +259,7 @@ and process_expr (api,heap) e =
       | exception IdentNotFound (_,_) -> begin
         (* It could be a recursive call *)
         if Heap.Api.is_pending_ident api fident
-        then (api, heap, Heap.li_ident fident val_type)
+        then (api, heap, Heap.li_ident fident (make_sinfo ~typ:val_type ()))
         else failwiths "(should not happen) not implemented %s %d" __FILE__ __LINE__
       end
       | Vtypes.Lambda { lam_eff; lam_body; lam_argname }
@@ -266,10 +273,12 @@ and process_expr (api,heap) e =
                   (api, acch %%% arg_eff, arg_evaled :: rezs)
             )
         in
+        let finfo = make_sinfo ~typ:val_type () in
+        let arginfo = make_sinfo ~typ:e.exp_type () in
         let open Heap  in
         ( api
-        , Heap.hcmps eff (Heap.hcall (li_ident fident val_type) evaled_args)
-        , Heap.call (Heap.ident fident val_type) evaled_args e.exp_type)
+        , eff %%% Heap.hcall (li_ident fident finfo) evaled_args
+        , Heap.call (Heap.ident fident finfo) evaled_args arginfo)
       | Vtypes.Lambda { lam_eff; lam_body; lam_argname } ->
           Format.printf "%s %d\n%!" __FILE__ __LINE__;
           let api, all_args_eff, evaled_args =
@@ -282,7 +291,7 @@ and process_expr (api,heap) e =
 
           (* TODO: rewrite this by evaluating all arguments *)
           let fuck = List.foldk evaled_args
-            ~init:(api, Heap.hempty, Heap.hempty, Heap.li_ident ~heap fident val_type, lam_eff, lam_body, val_type)
+            ~init:(api, Heap.hempty, Heap.hempty, Heap.li_ident ~heap fident (make_sinfo ~typ:val_type ()), lam_eff, lam_body, val_type)
             ~finish:(fun acc -> (acc,[]))
             ~f:(fun ((api, eff, arg_bindings, func, lam_eff, lam_body, typ) as theacc) hterm tl k ->
                   (* We accumulate on the go  1) an effect 2) term 3) the non-applied arguments *)
@@ -318,7 +327,7 @@ and process_expr (api,heap) e =
               (* recursive functions we left as is *)
               ( api
               , heap %%% all_args_eff %%% acced_eff
-              , Heap.call term_rez xs typ)
+              , Heap.call term_rez xs (make_sinfo ~typ ()))
           )
       | Vtypes.LI (h, ident, typ) as func ->
           let api, arg_eff, evaled_args =
@@ -330,7 +339,7 @@ and process_expr (api,heap) e =
             in
         ( api
         , arg_eff %%% (Heap.hcall (Heap.li ident typ) evaled_args)
-        , Heap.call func evaled_args e.exp_type)
+        , Heap.call func evaled_args (make_sinfo ~typ:e.exp_type ()))
       | _ -> assert false
 
   end

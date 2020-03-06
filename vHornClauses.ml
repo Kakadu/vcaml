@@ -301,6 +301,7 @@ module type ML_API = sig
     val eq: expr -> expr -> expr
     val binop: string -> expr -> expr -> expr
     val int: int -> expr
+    val bool: bool -> expr
     val link: int -> expr
 
     val neg: expr -> expr
@@ -352,7 +353,8 @@ module ML : ML_API = struct
     let app f = function
       | [] -> f
       | xs -> List.fold_left xs ~init:f ~f:app2
-    let int n fmt = Format.fprintf fmt "%d" n
+    let int  n fmt = Format.fprintf fmt "%d" n
+    let bool b fmt = Format.fprintf fmt "%b" b
     let ident s fmt = Format.fprintf fmt "%s" s
     let find str_ndx fmt =
       Format.fprintf fmt "find_%s" str_ndx
@@ -366,8 +368,7 @@ module ML : ML_API = struct
       List.iter cases ~f:(fun (id,e) ->
         Format.fprintf fmt "@[if %s = %s@ @]"
           scru id;
-        Format.fprintf fmt "@[then@ @]";
-        e fmt;
+        Format.fprintf fmt "@[then@ @[<hov>%a@]@]" (konst e) ();
         Format.fprintf fmt "@[@ else@ @]";
       );
       Format.fprintf fmt "@[else failwith \"unreachable\")@]";
