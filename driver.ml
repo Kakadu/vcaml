@@ -47,7 +47,9 @@ let find_lident api heap ident typ =
   | false ->
       match Heap.Api.find_ident_exn api ident with
       | (_,term) -> term
-      | exception Not_found -> ident_not_found ident "find_lident: can't find on ident '%s'" (Heap.name_of_heap_loc ident)
+      | exception Not_found
+      | exception Not_found_s _ ->
+          ident_not_found ident "find_lident: can't find on ident '%s'" (Heap.name_of_heap_loc ident)
 
 let apply_old_api api term =
   (* *)

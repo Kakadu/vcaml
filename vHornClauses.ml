@@ -394,6 +394,7 @@ module ML : ML_API = struct
       Format.fprintf fmt "@[let@ assert";
       Base.Option.iter name ~f:(Format.fprintf fmt "_%s");
       Format.fprintf fmt "@ " ;
+      Format.fprintf fmt "tau@ ";
       List.iter vars ~f:(Format.fprintf fmt "%s@ ");
       Format.fprintf fmt "=@ ";
       expr fmt;

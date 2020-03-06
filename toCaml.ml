@@ -23,6 +23,7 @@ module QoF : sig
   val enqueue: t -> item -> unit
   val dequeue: t -> item option
   val dequeue_exn: t -> item
+  val length: t -> int
 end = struct
   module X = struct
       type t = heap_path
@@ -59,15 +60,18 @@ end = struct
 
   let dequeue { q } = Queue.dequeue q
   let dequeue_exn { q } = Queue.dequeue_exn q
+  let length { q } = Queue.length q
 end
 
 let exec api texprs =
+  Format.printf "ToCaml.exec terms = %a\n%!" (GT.fmt GT.list @@ GT.fmt term) (List.map texprs ~f:fst);
   let open Format in
   let module VHC = VHornClauses.ML in
   let skip_lambdas =
     let rec helper acc = function
-      | Vtypes.Lambda { lam_argname = Some n; lam_body } ->
-          helper (n::acc) lam_body
+      | Vtypes.Lambda { lam_argname = Some n; lam_body; lam_eff } ->
+          helper (n::acc) (Heap.hdot lam_eff lam_body)
+          (* TODO: Maybe hdot should be done elsewhere *)
       | Vtypes.Lambda { lam_argname = None } ->
           failwith "bad property"
       | t -> (acc, t)
@@ -80,7 +84,9 @@ let exec api texprs =
     let q = QoF.create () in
     let (_: string option) = assert_name in
 
-    let rec do_term term = match term with
+    let rec do_term root_term =
+      Format.printf "do_term %a\n%!" (GT.fmt term) root_term;
+      match root_term with
       | CInt n           -> VHC.E.int n
       | LI (None, LoAddr link_id, _)
       | Link (link_id,_) -> VHC.E.link  link_id
@@ -97,6 +103,7 @@ let exec api texprs =
                   (ident "tau"))
               (ident "x")
           )
+          (* TODO: why "x"?*)
       | LI (Some (HDefined hs), id, _) ->
           let new_desc = next_heap_desc () in
           assert false
@@ -120,19 +127,26 @@ let exec api texprs =
       (*| Call ( Ident (id,_), [b; a], _) when String.equal (Ident.name id) "+"->*)
           VHC.E.binop "+" (do_term a) (do_term b)
 
-      | Call (LI (_, ident,_), [ LI (_,argid,_) as arg], _) -> begin
-          match Heap.Api.find_ident_exn api ident with
+      | Call (LI (_, fident,_), [ LI (_,argid,_) as arg], _) -> begin
+          match Heap.Api.find_ident_exn api fident with
           | exception Not_found ->
-              Format.printf "%a\n\n%!" Vtypes.fmt_term term;
+              Format.printf "%a\n\n%!" Vtypes.fmt_term root_term;
               failwiths "TODO: %s %d" __FILE__ __LINE__
           | (_, Lambda { lam_argname=Some arg_ident; lam_argtype; lam_body; lam_eff }) ->
-              let new_descr = next_heap_desc () in
-              let arg_heap = Heap.hsingle (Heap.heap_loc_of_ident arg_ident) arg lam_argtype in
               (* enqueue argument initialization *)
-              QoF.enqueue q (new_descr, HPArbitrary arg_heap, arg_heap);
+              let arg_descr = next_heap_desc () in
+              let arg_heap = Heap.hsingle (Heap.heap_loc_of_ident arg_ident) arg lam_argtype in
+              QoF.enqueue q (arg_descr, HPArbitrary arg_heap, arg_heap);
+
               let f_descr = next_heap_desc () in
-              QoF.enqueue q (f_descr, HPIdent ident, lam_eff);
-              VHC.E.find f_descr
+              QoF.enqueue q (f_descr, HPIdent fident, lam_eff);
+(*              let t = Heap.hdot arg_heap @@ Heap.hdot lam_eff lam_body in*)
+              VHC.E.(app
+                  (find (GT.show MyIdent.t (Heap.ident_of_heap_loc_exn fident)))
+                  [ find arg_descr
+                  ; ident @@ GT.show MyIdent.t @@ Heap.ident_of_heap_loc_exn argid
+                  ]
+                  )
               (* TODO: Apply `find` to something?*)
            | _ ->
               failwiths "I don't know what to write here %s %d" __FILE__ __LINE__
@@ -149,11 +163,13 @@ let exec api texprs =
       (*| Call (Ident (id,_),args,_) ->*)
 
       | _ ->
-          Format.printf "\n%a\n%!"   (GT.fmt  Vtypes.term) term;
-          Format.printf "\n%s\n\n%!" (GT.show Vtypes.term term);
+          Format.printf "\n%a\n%!"   (GT.fmt  Vtypes.term) root_term;
+          Format.printf "\n%s\n\n%!" (GT.show Vtypes.term root_term);
           failwiths "TODO: %s %d" __FILE__ __LINE__
     in
     let rec work_queue acc =
+      Format.printf "work_queue of length %d." (QoF.length q);
+
       let continue xs = work_queue (xs @ acc) in
       match QoF.dequeue q with
       | None -> VHC.program acc
@@ -235,6 +251,7 @@ let exec api texprs =
     in
 
     let result_term  = do_term root_prop in
+
     VHC.join_programs
       [ work_queue []
       ; VHC.program

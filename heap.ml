@@ -404,10 +404,15 @@ let term_of_heap_loc loc typ =
   | LoAddr addr_ndx -> link addr_ndx (Some typ)
 
 let heap_loc_of_ident id = LoIdent id
+let ident_of_heap_loc_exn = function
+  | LoAddr _ as loc -> failwiths "Heap location is an address %s on %s %d" (GT.show heap_loc loc) __FILE__ __LINE__
+  | LoIdent id -> id
+
 let name_of_heap_loc = function
   | LoIdent id -> Ident.name id
   | LoAddr n -> Printf.sprintf "__loc_%d" n
 let pp_heap_loc fmt x = Format.fprintf fmt "%s" (name_of_heap_loc x)
+
 
 exception TypesShouldBeSame of MyTypes.type_expr * MyTypes.type_expr
 
@@ -561,11 +566,17 @@ and hcmps : heap -> heap -> heap = fun l r ->
   Format.printf "\tresult = %s\n%!" (pp_heap () ans);*)
   ans
 
-let hdot heap term =
-  match heap with
-  | HDefined [] -> term
-  | HDefined hs -> hdot_defined hs term
-  | _ -> failwiths "not implemented %s %d" __FILE__ __LINE__
+let rec hdot h t =
+  match h,t with
+  | HDefined [],_ -> t
+  | HDefined hs,_ -> hdot_defined hs t
+  | _, Call (Builtin op, args, typ) ->
+      call (Builtin op) (List.map args ~f:(hdot h)) typ
+  | _, Link (loc,typ_opt) -> li (LoAddr loc) ~heap:h typ_opt
+  | _ ->
+    Format.printf "hdot: heap = @[%a@]\n%!" (GT.fmt heap) h;
+    Format.printf "      term = @[%a@]\n%!" (GT.fmt term) t;
+    failwiths "not implemented %s %d" __FILE__ __LINE__
 
 (* let rec heap_subst heap lident new_term =
   Format.eprintf "heap_subst not implemented\n%!";
