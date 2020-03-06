@@ -210,6 +210,7 @@ and term =
   (* types for builtin values are predefined *)
   | Call    of term * term GT.list * static_info
   | Union   of (term * term) GT.list
+  | Unreachable
 
 (* TODO: maybe store static_info instead of type *)
 and defined_heap = (heap_loc * (static_info * term)) GT.list

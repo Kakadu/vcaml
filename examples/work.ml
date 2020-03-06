@@ -5,4 +5,4 @@ let loop n =
   !x + n
 
 
-[@@@ prop.main (fun n -> loop n > 0)]
+[@@@ prop.main (fun m -> loop m > 0)]

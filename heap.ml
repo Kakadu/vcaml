@@ -12,6 +12,7 @@ let fold_defined ~f ~init = List.fold_left ~init ~f
 let rec type_of_term root =
 (*  let wrap desc = { Types.level = 0; scope = None; id=0; desc } in*)
   match root with
+  | Unreachable -> None
   | Union [] -> None
   | Union ((_,t)::_) -> type_of_term t
   | Link (_, info) -> si_typ info
@@ -190,10 +191,15 @@ let builtin op = Builtin op
 let are_two_links = function
   | Link (_,_), Link(_,_) -> true
   | _ -> false
+let link_and_ident = function
+  | Link (_,_), Ident(_,_) -> true
+  | Ident(_,_), Link (_,_) -> true
+  | _ -> false
 let same_idents = function
   | Ident (x,_), Ident(y,_) when GT.eq MyIdent.t x y -> true
   | LI(_,x,_), LI(_,y,_) when GT.eq heap_loc x y -> true
   | _ -> false
+
 
 let call_deoptimized fexpr args typ =
   (* TODO: add hash consing here *)
@@ -204,7 +210,7 @@ let pf_eq t1 t2 =
       String.equal (MyIdent.to_string id2) "ndx_1003"
     )
   then assert false; *)
-  if are_two_links (t1,t2)
+  if are_two_links (t1,t2) || link_and_ident (t1,t2)
   then boolean false
   else if same_idents (t1,t2)
   then boolean true
@@ -238,15 +244,28 @@ let tand t1 t2 = tands [t1; t2]
   | _   ->
       call_deoptimized (Builtin BiAnd) [t1; t2] Predef.type_bool*)
 
+let neg_deoptimized t = call_deoptimized (Builtin BiNeg) [ t ] (make_sinfo ~typ:Predef.type_bool ())
+let pf_not t =
+  match t with
+  | Call (Builtin BiStructEq, [ t1; t2 ], _) when are_two_links (t1,t2) ->  boolean true
+  | Call (Builtin BiStructEq, [ t1; t2 ], _) when same_idents   (t1,t2) ->  boolean true
+  | CBool true -> boolean false
+  | CBool false -> boolean true
+  | _ -> neg_deoptimized t
+
 let union_deoptimized gts = Union gts
 
-let union xs =
+let rec union xs =
   (* Printexc.print_raw_backtrace stdout (Printexc.get_callstack 2); *)
   (* TODO: optimize Union [ ⦗("n_1635" < 0), x⦘; ⦗¬("n_1635" < 0), x⦘] *)
   (*match simplify_guards xs with*)
   match xs with
-  (* | [] -> failwiths "FIXME: Introduce unreachable term for empty union." *)
-  | [(CBool true, t)] -> t
+  | [ (CBool  true, t) ] -> t
+  | []                   -> Unreachable
+  | (CBool false, _) :: us -> union us
+  | [ (g1,x); (g2,y) ] when (GT.eq Vtypes.term x y)
+          && (GT.eq Vtypes.term g1 (pf_not g2) || GT.eq Vtypes.term g2 (pf_not g1)  )
+          -> x
   (*| [ (g1,x); (g2,y)] when (GT.eq Vtypes.term x y)
         && (GT.eq Vtypes.term g1 (Not g2) || GT.eq Vtypes.term g2 (Not g1)  )
       -> x*)
@@ -276,15 +295,6 @@ let pf_term el = Term el
 let pf_not pf = simplify_pf @@ Not pf
 let pf_binop op f1 f2 = simplify_pf @@ LogicBinOp (op, f1, f2)
 *)
-
-let neg_deoptimized t = call_deoptimized (Builtin BiNeg) [ t ] (make_sinfo ~typ:Predef.type_bool ())
-let pf_not t =
-  match t with
-  | Call (Builtin BiStructEq, [ t1; t2 ], _) when are_two_links (t1,t2) ->  boolean true
-  | Call (Builtin BiStructEq, [ t1; t2 ], _) when same_idents   (t1,t2) ->  boolean true
-  | CBool true -> boolean false
-  | CBool false -> boolean true
-  | _ -> neg_deoptimized t
 
 let call fexpr args typ =
   (* Format.eprintf "constructing call of '%s' to '%s'\n" (pp_term () fexpr)  (pp_term () arg); *)
@@ -524,6 +534,8 @@ and hdot_generalized heap term =
       inherit [_,_] gmap_term_t fself
       method! c_LI () _ h ident typ =
         LI ( Option.some @@ hcmps heap (Option.value h ~default:hempty), ident, typ)
+      method! c_Link () _ loc sinfo =
+        li (LoAddr loc) ~heap sinfo
     end)
     ()
     term
@@ -565,8 +577,8 @@ and hcmps : heap -> heap -> heap = fun l r ->
 
 let (%%%) = hcmps
 
-let rec hdot h t =
-  match h,t with
+let rec hdot h t = hdot_generalized h t
+  (*match h,t with
   | HDefined [],_ -> t
   | HDefined hs,_ -> hdot_defined hs t
   | _, Call (Builtin op, args, typ) ->
@@ -578,7 +590,7 @@ let rec hdot h t =
     Format.printf "hdot: heap = @[%a@]\n%!" (GT.fmt  heap) h;
     Format.printf "      term = @[%a@]\n%!" (GT.fmt  term) t;
     Format.printf "           = @[%s@]\n%!" (GT.show term t);
-    failwiths "not implemented %s %d" __FILE__ __LINE__
+    failwiths "not implemented %s %d" __FILE__ __LINE__*)
 
 (* let rec heap_subst heap lident new_term =
   Format.eprintf "heap_subst not implemented\n%!";

@@ -162,18 +162,19 @@ let exec api texprs =
             )
       (*| Call (Ident (id,_),args,_) ->*)
       | CBool b -> VHC.E.bool b
+      | Unreachable -> VHC.E.unreachable
       | _ ->
           Format.printf "\n%a\n%!"   (GT.fmt  Vtypes.term) root_term;
           Format.printf "\n%s\n\n%!" (GT.show Vtypes.term root_term);
           failwiths "TODO: %s %d" __FILE__ __LINE__
     in
     let rec work_queue acc =
-(*      Format.printf "work_queue of length %d." (QoF.length q);*)
+      Format.printf "work_queue of length %d.\n%!" (QoF.length q);
 
       let continue xs = work_queue (xs @ acc) in
       match QoF.dequeue q with
       | None -> VHC.program acc
-      | Some (desc, _hp, h) -> match h with
+      | Some (desc, _hp, h) -> Format.printf "working on heap @[%a@]\n%!" (GT.fmt heap) h; match h with
       | HCmps (l,r) ->
           let new_descl = next_heap_desc () in
           let new_descr = next_heap_desc () in
