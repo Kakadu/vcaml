@@ -373,5 +373,108 @@ n \ \mapsto \ \li{n} -1
 \end{align}
 
 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\subsection{Ещё какой-то тест}
+\begin{minted}{ocaml}  
+let a = ref 0
+
+let loop n = 
+  !a
+ 
+[@@@assert (forall m (loop m >= 0))]
+
+\end{minted}
+
+
+\begin{equation}
+\sigma_0 = \begin{cases}
+a \mapsto 1\\ 
+b \mapsto 1\\ 
+n \mapsto \li{ndx}
+\end{cases}
+\end{equation}
+
+\begin{equation}
+\effect{fib} = \sigma_0 \circ loop
+\end{equation}
+
+\begin{equation}
+\effect{loop} = Merge \begin{cases}
+\varepsilon& \text{если } \li{n} \leq 1 \\
+\sigma \circ loop & \text{если } \li{n} > 1 
+\end{cases}
+\end{equation}
+
+\begin{equation}
+\sigma = \begin{cases}
+c \ \mapsto \ \li{a} + \li{b} \\ 
+a \ \mapsto \ \li{b} \\ 
+b \ \mapsto \ \li{a} + \li{b} \\ 
+n \ \mapsto \ \li{n} -1
+\end{cases}
+\end{equation}
+Терм-результат для $fib$ -- это значение в локации $b$ после совершения над глобальных состоянием эффекта $\sigma_0$ и эффекта вызова функции $loop$\footnote{У нас тут инициализация аргумента функции склеилась с глобальным состоянием на момент вызова, но это не существенно}.
+\begin{align*}
+\result{fib} &= \li{\sigma_0\circ loop,b}\\
+\result{loop} &= \texttt{Unit}
+\end{align*}
+Теперь посмотрим на инвариант, который хотим проверить. Инициализация аргумента будет сделано просто:
+\begin{equation}
+\sigma_1 = \{ ndx \mapsto \li{m} \}
+\end{equation}
+А сам инвариант будет выглядеть как
+\begin{equation}
+\sigma_1 \circ \result{fib} \ge \li{m}
+\end{equation}
+Подставив $ \result{fib}$ и применив "дистрибутивность" получим:
+\begin{align}
+\sigma_1 \circ \result{fib}  &\ge \li{m} \\
+\sigma_1 \circ \li{\sigma_0\circ loop,b}  &\ge \li{m} \\
+ \li{\sigma_1 \circ \sigma_0\circ loop,b}  &\ge \li{m} \\
+\end{align}
+Преобразуем все $\li{*,*}$ в $find$ используя в качестве контекстной кучи $\tau$:
+\begin{align}
+\find{\sigma_1 \circ \sigma_0\circ loop}{b}{\tau}  &\ge \find{\varepsilon}{m}{\tau}
+\end{align}
+что порождает следующий OCaml код
+\begin{align}
+\texttt{find}_{\sigma_1 \circ \sigma_0\circ loop}\;\tau\; b  &\ge \texttt{find}_{\varepsilon} \tau\; m
+\end{align}
+В общем результирующий OCaml код будет состоять из различных специализаций функции $\texttt{find}_{heap}$ для различных куч. Самый простой случай -- специализация для пустой кучи -- делегирует работу контекстной куче
+\begin{align}
+\texttt{find}_{\varepsilon} \tau\; x = \tau\; x
+\end{align}
+Все сгенерированные функции первого порядка $find_{heap}$ принимают контекстную кучу и имя локации и выдают значение.
+
+Предъявим специализации для более сложных случаев.
+\begin{align}
+\texttt{find}_{\sigma_1 \circ \sigma_0\circ loop}\; \tau \; x  &= 
+\texttt{find}_{loop}\; (\texttt{find}_{\sigma_1 \circ \sigma_0} \tau) \; x\\
+\texttt{find}_{\sigma_1 \circ \sigma_0}\; \tau \; x  &= 
+\texttt{find}_{\sigma_0}\; (\texttt{find}_{\sigma_1} \tau) \; x
+\end{align}
+
+Специализации $find$ для конкретных куч почти повторяют структуру соответствующих конкретных куч
+\begin{align}
+\texttt{find}_{\sigma_0}\; \tau \; x  = \begin{cases}
+1& \text{если } x \sim "a"\\
+1& \text{если } x \sim "b"\\
+\texttt{find}_{\varepsilon}\; \tau\; ndx& \text{если } x \sim "n"\\
+\tau\  x& \text{иначе}
+\end{cases}\\
+\texttt{find}_{\sigma_1}\; \tau \; x  = \begin{cases}
+\texttt{find}_{\varepsilon}\; \tau\; m& \text{если } x \sim "ndx"\\
+\tau\  x& \text{иначе}
+\end{cases}
+\end{align}
+
+\begin{align}
+\texttt{find}_{loop}\; \tau \; x  = \begin{cases}
+\texttt{find}_{\varepsilon} \tau x & \text{если } \texttt{find}_{\varepsilon} n \le 1\\
+\texttt{find}_{loop} (\texttt{find}_{\sigma}\; \tau) x & \text{если } \texttt{find}_{\varepsilon} n > 1\\
+\texttt{raise Unreachable}& \text{иначе}
+\end{cases}
+\end{align}
+
 
 \end{document}
