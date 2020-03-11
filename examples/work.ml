@@ -1,8 +1,7 @@
-let x = ref 400
+let a = ref 400
 
 
 let loop n =
-  !x + n
-
+  !a
 
 [@@@ prop.main (fun m -> loop m > 0)]

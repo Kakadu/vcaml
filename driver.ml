@@ -124,7 +124,7 @@ and process_expr (api,heap) e =
     Format.printf "HERR: %a\n%!" (GT.fmt MyIdent.t) ident;
     let t =
       match find_lident api heap (Heap.heap_loc_of_ident ident) val_type with
-      | Link (_,_) as lnk -> lnk
+(*      | Link (_,_) as lnk -> lnk*)
       | exception IdentNotFound (_,_)
       | Vtypes.Lambda  _
       | _ -> Heap.li (Heap.heap_loc_of_ident ident) (make_sinfo ~typ:val_type ())

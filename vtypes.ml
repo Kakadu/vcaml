@@ -321,21 +321,14 @@ let fmt_builtin fmt = function
   | Disj -> Format.fprintf fmt "∨"*)
 
 
-class ['extra_heap_loc] my_fmt_heap_loc fself_heap_loc =
-  object
-    inherit  [Format.formatter,'extra_heap_loc,unit] heap_loc_t
-    constraint 'extra_heap_loc = heap_loc
-    method c_LoIdent inh___130_ _ _x__131_ =
-      Format.fprintf inh___130_ "LoIdent @[(@,%a@,)@]"
-        (fun inh___132_ ->
-           fun subj___133_ -> GT.fmt MyIdent.t inh___132_ subj___133_)
-        _x__131_
-    method c_LoAddr inh___134_ _ _x__135_ =
-      Format.fprintf inh___134_ "LoAddr @[(@,%a@,)@]"
-        (fun inh___136_ ->
-           fun subj___137_ -> GT.fmt loc_id_t inh___136_ subj___137_)
-        _x__135_
-  end
+class ['extra_heap_loc] my_fmt_heap_loc _ = object
+  inherit  [Format.formatter,'extra_heap_loc,unit] heap_loc_t
+  constraint 'extra_heap_loc = heap_loc
+  method c_LoIdent fmt _ id =
+    Format.fprintf fmt "@[\"%a\"@]" (GT.fmt MyIdent.t) id
+  method c_LoAddr fmt _ l =
+    Format.fprintf fmt "@[_.%a@]" (GT.fmt loc_id_t) l
+end
 
 let my_fmt_heap_loc inh0 subj =
   GT.transform_gc gcata_heap_loc (new my_fmt_heap_loc) inh0 subj
@@ -412,9 +405,9 @@ class ['extra_term] my_fmt_term
       Format.fprintf fmt "@[\"%a\"@]" (GT.fmt MyIdent.t) ident
     method! c_LI fmt _ h ident _typ =
       match h with
-      | None -> Format.fprintf fmt "@[\"%a\"@]" (GT.fmt heap_loc) ident
+      | None -> Format.fprintf fmt "@[LI(%a)@]" (GT.fmt heap_loc) ident
       | Some h ->
-           Format.fprintf fmt "LI@ @[(@,%a,@,@ \"%a\"@,)@]" for_heap h (GT.fmt heap_loc) ident
+           Format.fprintf fmt "@[LI@ @[(@,%a,@,@ \"%a\"@,)@]@]" for_heap h (GT.fmt heap_loc) ident
     method! c_Union fmt _ ps =
       (* TODO: normal printing *)
       Format.fprintf fmt "@[<hv>(Union@ ";
