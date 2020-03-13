@@ -439,15 +439,20 @@ exception TypesShouldBeSame of MyTypes.type_expr * MyTypes.type_expr
 let rec hdot_defined hs term =
   match term with
   | LI (None, Ident (ident,_), typ) -> read_ident_defined hs ident typ
-  | LI (None, ident, typ) ->
-      Format.printf "TODO: check that implementation is OK %s %d\n%!" __FILE__ __LINE__;
-      term
+  | LI (None, key, typ) -> begin
+(*      Format.printf "TODO: check that implementation is OK %s %d\n%!" __FILE__ __LINE__;*)
+      match hdot_defined hs key with
+      | Ident (ident,_) -> read_ident_defined hs ident typ
+      | Reference (loc, _) -> read_defined hs (LoAddr loc) typ
+      | _ -> failwith "Not implemented"
+      end
   | LI (Some hs2, Ident (ident,_), typ) ->
       read_ident_generalized (hcmps (hdefined hs) hs2) ident typ
   | LI (Some hs2, _, typ) ->
       Format.printf "TODO: check that implementation is OK %s %d\n%!" __FILE__ __LINE__;
+      assert false;
       term
-  | Reference (loc, typ) -> Reference (loc, typ)
+  | Reference (loc, typ) -> term
   | Ident (_, _) ->
     (* Terms that are concrente adn a priori known should not be affected my heap mutation *)
     term

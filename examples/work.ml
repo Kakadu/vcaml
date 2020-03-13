@@ -6,4 +6,4 @@ let loop1 n = a
 
 
 let loop2 n = !a
-[@@@ prop.main2 (fun n -> (loop2 n) > 0)]
+[@@@ prop.main2 (fun m -> (loop2 m) > 0)]

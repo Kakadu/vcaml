@@ -399,7 +399,7 @@ let get_properies root =
     }
   in
   iterator.structure iterator root;
-  !ans
+  List.rev !ans
 
 (*
 let hornize api exprs =
