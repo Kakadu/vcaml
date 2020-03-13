@@ -15,7 +15,7 @@ let rec type_of_term root =
   | Unreachable -> None
   | Union [] -> None
   | Union ((_,t)::_) -> type_of_term t
-  | Link (_, info) -> si_typ info
+  | Reference (_, info) -> si_typ info
   | CInt _  -> Some Predef.type_int
   | CBool _ -> Some Predef.type_bool
   | Unit    -> Some Predef.type_unit
@@ -68,8 +68,10 @@ module Api = struct
 
   let is_recursive_ident_exn xs ident = is_recursive_exn xs (LoIdent ident)
 
-  let find_ident_exn : t -> heap_loc -> rec_flag * term = fun { api = MyAPI api } ident ->
+  let find_exn : t -> heap_loc -> rec_flag * term = fun { api = MyAPI api } ident ->
     Map.find_exn api ident
+  let find_ident_exn : t -> MyIdent.t -> rec_flag * term = fun { api = MyAPI api } ident ->
+    Map.find_exn api (LoIdent ident)
 
     (* List.find_map_exn api ~f:(fun (k,flg,t) ->
       if MyIdent.equal ident k
@@ -78,9 +80,11 @@ module Api = struct
     ) *)
     (* List.find_exn api ~f:(fun (k,flg,t) -> )
     List.Assoc.find_exn ~equal:MyIdent.equal api ident *)
-  let find_ident_li : t -> heap_loc -> MyTypes.type_expr -> term = fun api ident typ ->
+  let find_ident_li : t -> MyIdent.t -> MyTypes.type_expr -> term = fun api ident typ ->
     try snd @@ find_ident_exn api ident
-    with Not_found -> LI (None, ident, make_sinfo ~typ ())
+    with Not_found ->
+        let sinfo = make_sinfo ~typ () in
+        LI (None, Ident (ident, sinfo), sinfo)
 
   let mark_unique api id =
     { api with ii = Map.add_exn ~key:id ~data:{ ii_unique = true } api.ii }
@@ -170,13 +174,15 @@ let lambda lam_is_rec lam_argname ~arg_type lam_api lam_eff lam_body lam_typ =
     ; lam_argtype=arg_type
     ; lam_api; lam_eff; lam_body; lam_is_rec; lam_typ
     }
+let ident longident typ = Ident (longident, typ)
 let li ?heap loc info = LI (heap, loc, info)
-let li_ident ?heap longident typ = LI (heap, LoIdent longident, typ)
-let link id typ = Link (id, typ)
+let li_ident ?heap longident typ = LI (heap, ident longident typ, typ)
+
+let link id typ = Reference (id, typ)
 let new_link typ =
   let id = next_link_id() in
   (id, link id typ)
-let ident longident typ = Ident (longident, typ)
+
 let term_biAnd : term = Builtin BiAnd
 let conj a b term_typ =
   Call (term_biAnd, [a;b], make_sinfo ~typ:Predef.type_bool ())
@@ -189,15 +195,15 @@ let boolean b = CBool b
 let builtin op = Builtin op
 
 let are_two_links = function
-  | Link (_,_), Link(_,_) -> true
+  | Reference (_,_), Reference(_,_) -> true
   | _ -> false
 let link_and_ident = function
-  | Link (_,_), Ident(_,_) -> true
-  | Ident(_,_), Link (_,_) -> true
+  | Reference (_,_), Ident(_,_) -> true
+  | Ident(_,_), Reference (_,_) -> true
   | _ -> false
 let same_idents = function
   | Ident (x,_), Ident(y,_) when GT.eq MyIdent.t x y -> true
-  | LI(_,x,_), LI(_,y,_) when GT.eq heap_loc x y -> true
+  | LI(_,x,_), LI(_,y,_) when GT.eq term x y -> true   (* TODO: performance *)
   | _ -> false
 
 
@@ -432,10 +438,16 @@ exception TypesShouldBeSame of MyTypes.type_expr * MyTypes.type_expr
 (* FAT dot a.k.a. • *)
 let rec hdot_defined hs term =
   match term with
-  | LI (None, ident, typ) -> read_ident_defined hs ident typ
-  | LI (Some hs2, ident, typ) ->
-      read_generalized (hcmps (hdefined hs) hs2) ident typ
-  | Link (id, typ) -> Link (id, typ)
+  | LI (None, Ident (ident,_), typ) -> read_ident_defined hs ident typ
+  | LI (None, ident, typ) ->
+      Format.printf "TODO: check that implementation is OK %s %d\n%!" __FILE__ __LINE__;
+      term
+  | LI (Some hs2, Ident (ident,_), typ) ->
+      read_ident_generalized (hcmps (hdefined hs) hs2) ident typ
+  | LI (Some hs2, _, typ) ->
+      Format.printf "TODO: check that implementation is OK %s %d\n%!" __FILE__ __LINE__;
+      term
+  | Reference (loc, typ) -> Reference (loc, typ)
   | Ident (_, _) ->
     (* Terms that are concrente adn a priori known should not be affected my heap mutation *)
     term
@@ -455,10 +467,10 @@ let rec hdot_defined hs term =
       Format.eprintf "TODO: not implemented %s %d\n%!" __FILE__ __LINE__;
       term
 
-and read_ident_defined hs loc typ =
-  if List.Assoc.mem hs loc ~equal:(GT.eq heap_loc)
+and read_defined hs key typ =
+  if Defined.has_key hs key
   then
-    let (typ2,term) = Defined.find_exn hs ~key:loc in
+    let (typ2,term) = Defined.find_exn hs ~key in
     (*if not (GT.eq MyTypes.type_expr typ typ2)
       then raise (TypesShouldBeSame (typ, typ2));*)
     (* TODO: equality doesn't work as expected. It seem that structual equality
@@ -471,14 +483,15 @@ and read_ident_defined hs loc typ =
     in
 
     let positives = Defined.filter_map may_equal ~f:(fun (k,(typk,v)) ->
-      Some (pf_eq (term_of_heap_loc k typk) (term_of_heap_loc loc typ), v)
+      Some (pf_eq (term_of_heap_loc k typk) (term_of_heap_loc key typ), v)
     )
     in
     let neg = pf_conj_list @@ List.map may_equal ~f:(fun (k,_) ->
-      pf_not @@ pf_eq (term_of_heap_loc k typ) (term_of_heap_loc loc typ) )
+      pf_not @@ pf_eq (term_of_heap_loc k typ) (term_of_heap_loc key typ) )
     in
-    union @@ (neg, li loc typ) :: positives
-
+    union @@ (neg, li (term_of_heap_loc key typ) typ) :: positives
+and read_ident_defined hs (loc: MyIdent.t) typ =
+  read_defined hs (LoIdent loc) typ
 and write_ident_defined hs loc newval typ =
   let ans = write_ident_defined_helper hs loc newval typ in
   assert (Defined.no_paired_bindings ans);
@@ -534,15 +547,20 @@ and hdot_generalized heap term =
       inherit [_,_] gmap_term_t fself
       method! c_LI () _ h ident typ =
         LI ( Option.some @@ hcmps heap (Option.value h ~default:hempty), ident, typ)
-      method! c_Link () _ loc sinfo =
-        li (LoAddr loc) ~heap sinfo
+      method! c_Reference () _ loc sinfo =
+        li (Reference (loc, sinfo)) ~heap sinfo
     end)
     ()
     term
-and read_generalized heap ident typ =
+and read_ident_generalized heap (id: MyIdent.t) typ =
+  read_generalized heap (heap_loc_of_ident id) typ
+and read_generalized heap (id: heap_loc) typ =
   match heap with
-  | HDefined hs -> read_ident_defined hs ident typ
-  | _ -> li ~heap ident typ
+  | HDefined hs -> read_defined hs id typ
+  | _ ->
+      match id with
+      | LoIdent id -> li ~heap (ident id typ) typ
+      | LoAddr addr -> li ~heap (link addr typ) typ
 
 and hcmps : heap -> heap -> heap = fun l r ->
   let ans =

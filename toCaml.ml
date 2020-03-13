@@ -88,12 +88,14 @@ let exec api texprs =
 (*      Format.printf "do_term %a\n%!" (GT.fmt term) root_term;*)
       match root_term with
       | CInt n           -> VHC.E.int n
-      | LI (None, LoAddr link_id, _)
-      | Link (link_id,_) -> VHC.E.link  link_id
+      | LI (None, Reference(link_id,_), _)
+      | Reference (link_id,_) ->
+          VHC.E.(app2 (ident "tau") (link link_id))
       | Ident (id, _)
-      | LI (None, LoIdent id, _) -> VHC.E.ident (MyIdent.to_string id)
+      | LI (None, Ident (id,_), _) ->
+          VHC.E.(app2 (ident "tau") (loc (MyIdent.to_string id)))
 (*      | LI (None, id, _) -> VHC.E.ident (MyIdent.to_string id)*)
-
+      | LI (None, term, _) -> do_term term
       | LI (Some (HCmps (l,r) as heap), id, _) ->
           let new_desc = next_heap_desc () in
           QoF.enqueue q (new_desc, HPArbitrary heap, heap);
@@ -127,7 +129,7 @@ let exec api texprs =
       (*| Call ( Ident (id,_), [b; a], _) when String.equal (Ident.name id) "+"->*)
           VHC.E.binop "+" (do_term a) (do_term b)
 
-      | Call (LI (_, fident,_), [ LI (_,argid,_) as arg], _) -> begin
+      | Call (LI (_, Ident(fident,_),_), [ LI (_,argid,_) as arg], _) -> begin
           match Heap.Api.find_ident_exn api fident with
           | exception Not_found ->
               Format.printf "%a\n\n%!" Vtypes.fmt_term root_term;
@@ -139,12 +141,13 @@ let exec api texprs =
               QoF.enqueue q (arg_descr, HPArbitrary arg_heap, arg_heap);
 
               let f_descr = next_heap_desc () in
-              QoF.enqueue q (f_descr, HPIdent fident, lam_eff);
+              QoF.enqueue q (f_descr, HPIdent (Heap.heap_loc_of_ident fident), lam_eff);
 (*              let t = Heap.hdot arg_heap @@ Heap.hdot lam_eff lam_body in*)
               VHC.E.(app
-                  (find (GT.show MyIdent.t (Heap.ident_of_heap_loc_exn fident)))
+                  (find (GT.show MyIdent.t fident))
                   [ find arg_descr
-                  ; ident @@ GT.show MyIdent.t @@ Heap.ident_of_heap_loc_exn argid
+(*                  ; ident @@ GT.show MyIdent.t @@ Heap.ident_of_heap_loc_exn argid*)
+                  ; do_term argid
                   ]
                   )
               (* TODO: Apply `find` to something?*)
@@ -211,7 +214,7 @@ let exec api texprs =
               failwiths "TODO: %s %d" __FILE__ __LINE__
         end
         *)
-      | HCall (LI (None,ident,_), [arg]) -> begin
+      | HCall (LI (None, Ident (ident,_),_), [arg]) -> begin
           match Heap.Api.find_ident_exn api ident with
           | exception Not_found ->
               Format.printf "%a\n\n%!" Vtypes.fmt_heap h;
@@ -222,7 +225,7 @@ let exec api texprs =
               (* enqueue argument initialization *)
               QoF.enqueue q (new_descr, HPArbitrary arg_heap, arg_heap);
               let f_descr = next_heap_desc () in
-              QoF.enqueue q (f_descr, HPIdent ident, lam_eff);
+              QoF.enqueue q (f_descr, HPIdent (Heap.heap_loc_of_ident ident), lam_eff);
               work_queue acc
               (*Format.printf "%a\n\n%!" Vtypes.fmt_heap h;
               Format.printf "%a\n\n%!" Vtypes.fmt_term lam_body;

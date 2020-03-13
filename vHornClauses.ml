@@ -308,6 +308,7 @@ module type ML_API = sig
     val and_: expr -> expr -> expr
 
     val ident: string -> expr
+    val loc:   string -> expr
     val app2 : expr -> expr -> expr
     val app  : expr -> expr list -> expr
     val find : heap_index -> expr
@@ -356,13 +357,15 @@ module ML : ML_API = struct
     let int  n fmt = Format.fprintf fmt "%d" n
     let bool b fmt = Format.fprintf fmt "%b" b
     let ident s fmt = Format.fprintf fmt "%s" s
+    let loc s fmt = Format.fprintf fmt "%S" s
+
     let find str_ndx fmt =
       Format.fprintf fmt "find_%s" str_ndx
 
     let konst f = fun fmt () -> f fmt
     let neg f fmt = Format.fprintf fmt "@[(not %a)@]" (konst f) ()
 
-    let link = int
+    let link n fmt = Format.fprintf fmt "\"%d\"" n
     let switch_ident scru cases fmt =
       Format.fprintf fmt "@[<hov 2>(";
       List.iter cases ~f:(fun (id,e) ->

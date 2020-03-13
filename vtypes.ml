@@ -22,6 +22,7 @@ module MyIdent = struct
   let pp_string () = to_string
   let equal = Ident.equal
 
+
   let t = { GT.gcata = (fun _ _ _ -> assert false)
           ; GT.plugins = object
               method fmt fmt o = Format.fprintf fmt "%s" (Ident.unique_name o)
@@ -140,6 +141,9 @@ type loc_id_t = GT.int [@@deriving gt ~options:{fmt; eq; gmap; compare; show}]
 type heap_loc = LoIdent of MyIdent.t | LoAddr of loc_id_t
   [@@deriving gt ~options:{fmt; eq; gmap; compare; show}]
 
+(*type heap_loc = MyIdent.t*)
+(*[@@deriving gt ~options:{fmt; eq; gmap; compare; show}]*)
+
 module HeapLocMap = struct
   type key = heap_loc
   module X = struct
@@ -148,8 +152,8 @@ module HeapLocMap = struct
         type nonrec t = t
         let compare a b = int_of_comparison @@ GT.compare heap_loc a b
         let sexp_of_t = function
-          | LoIdent id  -> Sexp.Atom (Format.asprintf "%a" (GT.fmt MyIdent.t) id)
-          | LoAddr addr -> Sexp.Atom (Format.asprintf "%a" (GT.fmt loc_id_t) addr)
+          | LoIdent id -> Sexp.Atom (Format.asprintf "%a" (GT.fmt MyIdent.t) id)
+          | LoAddr id  -> Sexp.Atom (Format.asprintf "%a" (GT.fmt loc_id_t) id)
       end)
   end
   type +'a t = (heap_loc, 'a, X.comparator_witness) Map.t
@@ -177,7 +181,6 @@ module HeapLocMap = struct
       }
 end
 
-
 (* **)
 type api = MyAPI of (rec_flag * term) HeapLocMap.t
 and static_info = { si_typ : MyTypes.type_expr GT.option }
@@ -196,8 +199,7 @@ and term =
               ; lam_typ    : static_info
               }
   | Builtin of builtin
-  | Link of loc_id_t * static_info (*  maybe add readable name? *)
-
+  | Reference of loc_id_t * static_info (*  maybe add readable name? *)
 
   (* Values specific for symbolic execution *)
   (* TODO: Lazy Instantiation contains a context heap, identifier and type of that identifier
@@ -205,7 +207,7 @@ and term =
     and it will be most common case. In more complex situation (Composition or Mutation of heap)
     Something will be stored there.
    *)
-  | LI    of heap GT.option * heap_loc * static_info
+  | LI    of heap GT.option * term * static_info
   | Ident of MyIdent.t * static_info
   (* types for builtin values are predefined *)
   | Call    of term * term GT.list * static_info
@@ -246,9 +248,11 @@ module Defined : sig
   val filter_map : t -> f:(key * v -> 'v option) -> 'v list
 
   val find_exn : t -> key:key -> v
+  val find     : t -> key:key -> v option
   val no_paired_bindings: t -> bool
 
   val remove_key: t -> key -> t
+  val has_key: t -> key -> bool
 
   val hacky_fold : cond:(key -> term -> bool) -> f:(key -> term -> term) -> t -> key list * t
   val add : t -> key -> term -> static_info -> t
@@ -258,7 +262,6 @@ end = struct
   type v = static_info * term
 
   let filter : t -> f:_ -> _ = fun xs ~f -> List.filter xs ~f
-(*  :(fun (k,v) -> f k v)*)
   let filter_map : t -> f:_ -> _ = List.filter_map
 
   let add xs k v typ : t =  (k, (typ,v)) :: xs
@@ -271,6 +274,7 @@ end = struct
   let has_key xs k =
     try ignore (List.Assoc.find_exn xs k ~equal:(GT.eq heap_loc)); true
     with Not_found -> false
+       | Not_found_s _ -> false
 
   let remove_key xs id = List.filter xs ~f:(fun (id2,t) -> not @@ GT.eq heap_loc id id2)
 
@@ -283,6 +287,8 @@ end = struct
     )
 
   let find_exn xs ~key = List.Assoc.find_exn xs key ~equal:(GT.eq heap_loc)
+  let find     xs ~key = List.Assoc.find     xs key ~equal:(GT.eq heap_loc)
+
   let map_values h ~f =
     List.map h (fun (ident, (typ, v)) -> (ident,(typ, f ident typ v)))
 
@@ -398,16 +404,16 @@ class ['extra_term] my_fmt_term
       Format.fprintf fmt "@[(@,%a@ %a)@]"
         fself_term arg
         fmt_unop op *)
-    method! c_Link fmt _ idx _ =
-      Format.fprintf fmt "@[(RefLocation@ _.%d)@]" idx
+    method! c_Reference fmt _ idx _ =
+      Format.fprintf fmt "@[(Reference@ _.%d)@]" idx
     method! c_CInt fmt _ n = Format.fprintf fmt "%d" n
-    method! c_Ident fmt _ ident _typ =
+    method! c_Ident fmt _ ident _ =
       Format.fprintf fmt "@[\"%a\"@]" (GT.fmt MyIdent.t) ident
     method! c_LI fmt _ h ident _typ =
       match h with
-      | None -> Format.fprintf fmt "@[LI(%a)@]" (GT.fmt heap_loc) ident
+      | None -> Format.fprintf fmt "@[LI(%a)@]" fself_term ident
       | Some h ->
-           Format.fprintf fmt "@[LI@ @[(@,%a,@,@ \"%a\"@,)@]@]" for_heap h (GT.fmt heap_loc) ident
+           Format.fprintf fmt "@[LI@ @[(@,%a,@,@ \"%a\"@,)@]@]" for_heap h fself_term ident
     method! c_Union fmt _ ps =
       (* TODO: normal printing *)
       Format.fprintf fmt "@[<hv>(Union@ ";

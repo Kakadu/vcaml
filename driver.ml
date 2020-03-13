@@ -42,15 +42,21 @@ exception IdentNotFound of heap_loc  * string
 let ident_not_found loc fmt =
   Format.ksprintf (fun s -> raise (IdentNotFound (loc, s))) fmt
 
-let find_lident api heap ident typ =
-  match Heap.Api.is_pending api ident with
-  | true -> Heap.li ~heap ident (make_sinfo ~typ ())
+let find_heap_loc api heap loc typ =
+  match Heap.Api.is_pending api loc with
+  | true ->
+      let sinfo = make_sinfo ~typ () in
+      Heap.li ~heap (Heap.term_of_heap_loc loc sinfo) sinfo
   | false ->
-      match Heap.Api.find_ident_exn api ident with
+      match Heap.Api.find_exn api loc with
       | (_,term) -> term
       | exception Not_found
       | exception Not_found_s _ ->
-          ident_not_found ident "find_lident: can't find on ident '%s'" (Heap.name_of_heap_loc ident)
+          ident_not_found loc "find_lident: can't find on ident '%s'" (Heap.name_of_heap_loc loc)
+
+let find_ident api heap ident typ =
+  find_heap_loc api heap (Heap.heap_loc_of_ident ident) typ
+
 
 let apply_old_api api term =
   (* *)
@@ -123,11 +129,13 @@ and process_expr (api,heap) e =
     (* identifiers are returned as is. No inlining yet, even for functions *)
     Format.printf "HERR: %a\n%!" (GT.fmt MyIdent.t) ident;
     let t =
-      match find_lident api heap (Heap.heap_loc_of_ident ident) val_type with
+      match find_ident api heap ident val_type with
 (*      | Link (_,_) as lnk -> lnk*)
       | exception IdentNotFound (_,_)
       | Vtypes.Lambda  _
-      | _ -> Heap.li (Heap.heap_loc_of_ident ident) (make_sinfo ~typ:val_type ())
+      | _ ->
+        let sinfo = make_sinfo ~typ:val_type () in
+        Heap.li_ident ident sinfo
     in
     (api, heap, t)
   | Texp_function { cases=[{c_guard=None; c_lhs={pat_desc=Tpat_construct({txt=Lident "()"},_,[])}; c_rhs}] } ->
@@ -197,7 +205,7 @@ and process_expr (api,heap) e =
   end
   | Texp_apply ({exp_desc=Texp_ident(Pdot (Pident _ident, "!"), _, _)}, [ (_,Some r) ]) -> begin
     let api,h,r = process_expr (api,heap) r in
-    (api,h,r)
+    (api,h, Heap.li r (make_sinfo ~typ:e.exp_type ()))
   end
   | Texp_apply ({exp_desc=Texp_ident(Pdot (Pident _ident, "not"), _, {val_type})}, [ (_,Some rhs) ]) ->
     let api,h,r = process_expr (api,heap) rhs in
@@ -209,21 +217,20 @@ and process_expr (api,heap) e =
     (* now we need to compose effect of e with effect of call
        But for recursive calls -- we shouldn't
      *)
-    match find_lident api heap (Heap.heap_loc_of_ident fident) ftyp with
+    match find_heap_loc api heap (Heap.heap_loc_of_ident fident) ftyp with
     | exception IdentNotFound (_,_) -> begin
         (* It could be a recursive call *)
         if Heap.Api.is_pending_ident api fident
-        then (api, heap, Heap.li (Heap.heap_loc_of_ident fident) (make_sinfo ~typ:ftyp ()))
+        then (api, heap, Heap.li_ident fident (make_sinfo ~typ:ftyp ()))
         else failwiths "(should not happen) not implemented %s %d" __FILE__ __LINE__
     end
 
     | Vtypes.Lambda  _ when Heap.Api.is_pending_ident api fident || Heap.Api.is_recursive_ident_exn api fident ->
         (* recursive functions we left as is *)
-        let floc = Heap.heap_loc_of_ident fident in
         let val_info = make_sinfo ~typ:ftyp () in
         ( api
-        , Heap.(hcmps arg_eff (hcall (li floc val_info) [arg_evaled]))
-        , Heap.(call (li ~heap floc val_info) [arg_evaled] val_info))
+        , Heap.(hcmps arg_eff (hcall (li_ident fident val_info) [arg_evaled]))
+        , Heap.(call (li_ident ~heap fident val_info) [arg_evaled] val_info))
     | Vtypes.Lambda {lam_argname; lam_argtype; lam_eff; lam_api; lam_body} ->
         (* for nonrecursive lambdas we need to compose its effect after binding the argument *)
         let argb = match lam_argname with
@@ -255,7 +262,7 @@ and process_expr (api,heap) e =
       )
       in
       (* Format.printf "Got multiple (%d) arguments\n%!" (List.length args); *)
-      match find_lident api heap (Heap.heap_loc_of_ident fident) val_type with
+      match find_ident api heap fident val_type with
       | exception IdentNotFound (_,_) -> begin
         (* It could be a recursive call *)
         if Heap.Api.is_pending_ident api fident
@@ -373,7 +380,7 @@ and process_expr (api,heap) e =
   Returns [ warnings * structure_item * (propname option) ]
   *)
 let get_properies root =
-  let rgxp = Str.regexp "prop\\(\\.\\([a-zA-Z]+\\)\\)?" in
+  let rgxp = Str.regexp "prop\\(\\.\\([a-zA-Z0-9]+\\)\\)?" in
   let ans = ref [] in
 
   let iterator =

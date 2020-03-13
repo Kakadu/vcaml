@@ -56,6 +56,7 @@ module type ML_API = sig
     val and_: expr -> expr -> expr
 
     val ident: string -> expr
+    val loc:   string -> expr
     val app2 : expr -> expr -> expr
     val app : expr -> expr list -> expr
     val find : heap_index -> expr
