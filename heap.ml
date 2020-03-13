@@ -63,14 +63,14 @@ module Api = struct
   let is_recursive_exn { api = MyAPI api; pending } ident =
     List.mem pending ident ~equal:(GT.eq heap_loc) ||
     match Map.find_exn api ident with
-    | (Recursive,_) -> true
-    | (Nonrecursive,_) -> false
+    | (Recursive,_,_) -> true
+    | (Nonrecursive,_,_) -> false
 
   let is_recursive_ident_exn xs ident = is_recursive_exn xs (LoIdent ident)
 
-  let find_exn : t -> heap_loc -> rec_flag * term = fun { api = MyAPI api } ident ->
+  let find_exn : t -> heap_loc -> api_item = fun { api = MyAPI api } ident ->
     Map.find_exn api ident
-  let find_ident_exn : t -> MyIdent.t -> rec_flag * term = fun { api = MyAPI api } ident ->
+  let find_ident_exn : t -> MyIdent.t -> api_item = fun { api = MyAPI api } ident ->
     Map.find_exn api (LoIdent ident)
 
     (* List.find_map_exn api ~f:(fun (k,flg,t) ->
@@ -81,7 +81,8 @@ module Api = struct
     (* List.find_exn api ~f:(fun (k,flg,t) -> )
     List.Assoc.find_exn ~equal:MyIdent.equal api ident *)
   let find_ident_li : t -> MyIdent.t -> MyTypes.type_expr -> term = fun api ident typ ->
-    try snd @@ find_ident_exn api ident
+    try let (_,t,_) = find_ident_exn api ident in
+        t
     with Not_found ->
         let sinfo = make_sinfo ~typ () in
         LI (None, Ident (ident, sinfo), sinfo)
@@ -450,7 +451,6 @@ let rec hdot_defined hs term =
       read_ident_generalized (hcmps (hdefined hs) hs2) ident typ
   | LI (Some hs2, _, typ) ->
       Format.printf "TODO: check that implementation is OK %s %d\n%!" __FILE__ __LINE__;
-      assert false;
       term
   | Reference (loc, typ) -> term
   | Ident (_, _) ->

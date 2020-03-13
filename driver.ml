@@ -49,7 +49,7 @@ let find_heap_loc api heap loc typ =
       Heap.li ~heap (Heap.term_of_heap_loc loc sinfo) sinfo
   | false ->
       match Heap.Api.find_exn api loc with
-      | (_,term) -> term
+      | (_,term,_) -> term
       | exception Not_found
       | exception Not_found_s _ ->
           ident_not_found loc "find_lident: can't find on ident '%s'" (Heap.name_of_heap_loc loc)
@@ -76,7 +76,7 @@ and process_si (api,heap) { str_desc; _} : (Heap.Api.t * Vtypes.t) option =
   | Tstr_value (recflg, [vb]) -> begin
     match process_vb (api, Heap.hempty) recflg vb with
     | (api, Some ident, ans, heff) ->
-        Some  ( Heap.Api.add api (Heap.heap_loc_of_ident ident) (recflg, ans)
+        Some  ( Heap.Api.add api (Heap.heap_loc_of_ident ident) (recflg, ans, heff)
               , Heap.hcmps heap heff)
     | _ -> assert false
   end
@@ -161,10 +161,10 @@ and process_expr (api,heap) e =
       match process_vb (api,heap) recflg vb with
       | (api, Some ident, rhs, heff) ->
           (* we don't care about isolation here, so we compose heaps with toplevel one *)
+          let api = Heap.Api.add api (Heap.heap_loc_of_ident ident) (recflg,rhs, heff) in
           let heap = heap %%% heff in
           let heap = heap %%% (Heap.hsingle (Heap.heap_loc_of_ident ident) rhs (make_sinfo ~typ:vb.vb_expr.exp_type ())) in
           (* we need to extend API before processing the body *)
-          let api = Heap.Api.add api (Heap.heap_loc_of_ident ident) (recflg,rhs) in
           let api, heff3, ans = process_expr (api,heap) body in
           (api, heff3, ans)
       | _ -> assert false

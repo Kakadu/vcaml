@@ -134,7 +134,7 @@ let exec api texprs =
           | exception Not_found ->
               Format.printf "%a\n\n%!" Vtypes.fmt_term root_term;
               failwiths "TODO: %s %d" __FILE__ __LINE__
-          | (_, Lambda { lam_argname=Some arg_ident; lam_argtype; lam_body; lam_eff }) ->
+          | (_, Lambda { lam_argname=Some arg_ident; lam_argtype; lam_body; lam_eff },_) ->
               (* enqueue argument initialization *)
               let arg_descr = next_heap_desc () in
               let arg_heap = Heap.hsingle (Heap.heap_loc_of_ident arg_ident) arg lam_argtype in
@@ -219,7 +219,7 @@ let exec api texprs =
           | exception Not_found ->
               Format.printf "%a\n\n%!" Vtypes.fmt_heap h;
               failwiths "TODO: %s %d" __FILE__ __LINE__
-          | (_, Lambda { lam_argname=Some arg_ident; lam_argtype; lam_body; lam_eff }) ->
+          | (_, Lambda { lam_argname=Some arg_ident; lam_argtype; lam_body; lam_eff }, _) ->
               let new_descr = next_heap_desc () in
               let arg_heap = Heap.hsingle (Heap.heap_loc_of_ident arg_ident) arg lam_argtype in
               (* enqueue argument initialization *)

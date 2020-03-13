@@ -182,7 +182,8 @@ module HeapLocMap = struct
 end
 
 (* **)
-type api = MyAPI of (rec_flag * term) HeapLocMap.t
+type api = MyAPI of api_item HeapLocMap.t
+and api_item = (rec_flag * term * heap)
 and static_info = { si_typ : MyTypes.type_expr GT.option }
 and term =
   (* Values specific to memory model *)
@@ -381,7 +382,7 @@ class ['a, 'extra_pf] my_fmt_pf for_term fself_pf =
 
 *)
 class ['extra_term] my_fmt_term
-    ((for_api, for_defined_heap, for_heap, fmt_static_info, fself_term) as _mutuals_pack)
+    ((for_api, for_api_item, for_defined_heap, for_heap, fmt_static_info, fself_term) as _mutuals_pack)
   =
   object
     inherit  ['extra_term] fmt_term_t_stub _mutuals_pack as super
@@ -473,7 +474,7 @@ let hack_rec_flg fmt = function
   | Nonrecursive ->  Format.fprintf fmt "↦"
 
 class ['extra_api] my_fmt_api
-    ((for_api, (for_defined_heap: _ -> defined_heap -> _), for_heap, fmt_static_info, for_term) as _mutuals_pack)
+    ((for_api, for_api_item, (for_defined_heap: _ -> defined_heap -> _), for_heap, fmt_static_info, for_term) as _mutuals_pack)
   =
   object
     inherit  ['extra_api] fmt_api_t_stub _mutuals_pack
@@ -482,27 +483,35 @@ class ['extra_api] my_fmt_api
       if Map.is_empty mapa
       then Format.fprintf fmt "[]"
       else
-        let (khead,(flg,thead)) = Map.min_elt_exn mapa in
-        Format.pp_open_vbox fmt 0;
+        let (khead,(flg,thead,heff)) = Map.min_elt_exn mapa in
+        Format.fprintf fmt "@[<v>";
         (* Format.fprintf fmt   "@[<hov>[@ %a@ %a@ %a@]@]@,"
             (GT.fmt MyIdent.t) khead
             hack_rec_flg flg
             for_term thead; *)
         Map.iter_keys mapa ~f:(fun k ->
-            let (flg,t) = Map.find_exn mapa k in
-            Format.fprintf fmt "@[<h>%c@ @[%a@ %a@ %a@]@]@,"
+            let (flg,t,h) = Map.find_exn mapa k in
+            Format.fprintf fmt "@[<h>%c @[%a  "
               (if GT.eq heap_loc k khead then '[' else ';')
-              (GT.fmt heap_loc) k
+              (GT.fmt heap_loc) k;
+
+            Format.fprintf fmt "@[<v>";
+            Format.fprintf fmt "@[%a@ %a@]@,"
               hack_rec_flg flg
-              for_term t
+              for_term t;
+            Format.fprintf fmt "@[ @ %a@]"
+
+              for_heap h;
+            Format.fprintf fmt "@]";
+            Format.fprintf fmt "@]@]@,"
           );
-          Format.fprintf fmt "]";
-          Format.pp_close_box fmt ()
+          Format.fprintf fmt "]@]"
+
 
   end
 
 class ['extra_defined_heap] my_fmt_defined_heap
-    ((for_api, (for_defined_heap: _ -> defined_heap -> _), for_heap, fmt_static_info, for_term) as _mutuals_pack)
+    ((for_api, for_api_item, (for_defined_heap: _ -> defined_heap -> _), for_heap, fmt_static_info, for_term) as _mutuals_pack)
   =
   object
     inherit  [Format.formatter,'extra_defined_heap,unit] defined_heap_t
@@ -525,7 +534,7 @@ class ['extra_defined_heap] my_fmt_defined_heap
   end
 
 class ['extra_t] my_fmt_heap
-    ((for_api, (for_defined_heap: _ -> defined_heap -> _), for_heap, fmt_static_info, for_term) as _mutuals_pack)
+    ((for_api, for_api_item, (for_defined_heap: _ -> defined_heap -> _), for_heap, fmt_static_info, for_term) as _mutuals_pack)
   =
   object
     inherit  ['extra_t] fmt_heap_t_stub _mutuals_pack
@@ -553,25 +562,26 @@ class ['extra_t] my_fmt_heap
   end
 
 let fmt_api_0          = new my_fmt_api
+let fmt_api_item_0     = new fmt_api_item_t
 let fmt_defined_heap_0 = new my_fmt_defined_heap
 let fmt_heap_0         = new my_fmt_heap
 let fmt_term_0         = new my_fmt_term
 
 let fmt_api eta =
-  let (f, _, _, _, _) =
-    fix_api fmt_api_0 fmt_defined_heap_0 fmt_heap_0 fmt_static_info_0 fmt_term_0 in
+  let (f, _, _, _, _, _) =
+    fix_api fmt_api_0 fmt_api_item_0 fmt_defined_heap_0 fmt_heap_0 fmt_static_info_0 fmt_term_0 in
   f eta
 let fmt_defined_heap eta =
-  let (_, f, _, _, _) =
-    fix_api fmt_api_0 fmt_defined_heap_0 fmt_heap_0 fmt_static_info_0 fmt_term_0 in
+  let (_, _, f, _, _, _) =
+    fix_api fmt_api_0 fmt_api_item_0 fmt_defined_heap_0 fmt_heap_0 fmt_static_info_0 fmt_term_0 in
   f eta
 let fmt_heap eta =
-  let (_, _, f, _, _) =
-    fix_api fmt_api_0 fmt_defined_heap_0 fmt_heap_0 fmt_static_info_0 fmt_term_0 in
+  let (_, _, _, f, _, _) =
+    fix_api fmt_api_0 fmt_api_item_0 fmt_defined_heap_0 fmt_heap_0 fmt_static_info_0 fmt_term_0 in
   f eta
 let fmt_term eta =
-  let (_, _, _, _, f) =
-    fix_api fmt_api_0 fmt_defined_heap_0 fmt_heap_0 fmt_static_info_0 fmt_term_0 in
+  let (_, _, _, _, _, f) =
+    fix_api fmt_api_0 fmt_api_item_0 fmt_defined_heap_0 fmt_heap_0 fmt_static_info_0 fmt_term_0 in
   f eta
 
 let api = {
