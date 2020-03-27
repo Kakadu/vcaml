@@ -48,6 +48,7 @@
 \newcommand*{\arr}{\ensuremath{\rightarrow}}
 \newcommand{\dd}[1]{\mathrm{d}#1}
 \newcommand{\effect}[1]{\text{effect}_{#1}}
+\renewcommand{\read}[1]{\text{read}_{#1}}
 \newcommand{\result}[1]{\text{result}_{#1}}
 \newcommand{\find}[3]{\ensuremath{\texttt{find}(#1, #2,#3)}}
 \newcommand{\siref}[1]{\ensuremath{\texttt{Ref}(#1)}}
@@ -424,4 +425,26 @@ a &\mapsto \texttt{Ref } 404\\
 \end{align}
 Специализации $\find{loop}{...}{...}$ нет, потому что она не вызывается нигде
 
+\subsection{Пример в стиле Юры}
+\begin{minted}{ocaml}  
+let a = ref 400
+
+let loop m = a
+ 
+let main m = if (loop1 m >= 300) then () else fail
+\end{minted}
+
+\begin{align}
+\read{a}(\tau,l) &= \begin{cases} 400,& l=="a" \\ \tau\ "l", & otherwise\end{cases}\\
+\result{a}(\tau) &= "a" \nonumber \\
+\read{loop1}(\tau,m,l) &= \read{a}(\tau,l)\\
+\result{loop}(\tau,m) &= \tau\  "a" \nonumber \\
+\read{main}(\tau,m,l) &= \tau\ "l"\\
+\result{main}(\tau,m,l) &= \begin{cases} (),& \tau(\result{loop1}(\tau,m))>300  \\ fail, & otherwise\end{cases}
+\end{align}
+
+Надо только подсунуть правильный $\tau$
+\begin{minted}{ocaml}
+let ub l = failwith "undefined behaviour"
+\end{minted}
 \end{document}
