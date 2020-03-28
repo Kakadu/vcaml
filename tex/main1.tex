@@ -425,26 +425,53 @@ a &\mapsto \texttt{Ref } 404\\
 \end{align}
 Специализации $\find{loop}{...}{...}$ нет, потому что она не вызывается нигде
 
-\subsection{Пример в стиле Юры}
+\subsection{1й пример в стиле Юры}
 \begin{minted}{ocaml}  
 let a = ref 400
 
 let loop m = a
  
-let main m = if (loop1 m >= 300) then () else fail
+let main m = if (!(loop m) >= 300) then () else fail
 \end{minted}
 
 \begin{align}
-\read{a}(\tau,l) &= \begin{cases} 400,& l=="a" \\ \tau\ "l", & otherwise\end{cases}\\
+\read{a}(\tau,l) &= \begin{cases} 400,& l=="a" \\ \tau\ l, & otherwise\end{cases}\\
 \result{a}(\tau) &= "a" \nonumber \\
-\read{loop1}(\tau,m,l) &= \read{a}(\tau,l)\\
-\result{loop}(\tau,m) &= \tau\  "a" \nonumber \\
-\read{main}(\tau,m,l) &= \tau\ "l"\\
-\result{main}(\tau,m,l) &= \begin{cases} (),& \tau(\result{loop1}(\tau,m))>300  \\ fail, & otherwise\end{cases}
+\read{loop}(\tau,m,l) &= \read{a}(\tau,l)\\
+\result{loop}(\tau,m) &= \result{a}(\tau) \nonumber \\
+\read{main}(\tau,m,l) &= \tau\ l\\
+\result{main}(\tau,m,l) &= \begin{cases} (),& \tau(\result{loop}(\tau,m))>300  \\ fail, & otherwise\end{cases}
 \end{align}
 
 Надо только подсунуть правильный $\tau$
 \begin{minted}{ocaml}
 let ub l = failwith "undefined behaviour"
 \end{minted}
+
+
+\begin{align}
+query: \result{main}(\lambda l.\read{a}(ub, l), m, l)
+\end{align}
+
+\begin{align}
+\read{\top}(\tau,l) = \begin{cases} 400 & l == "a" \\ \tau(l)&otherwise\end{cases}  \nonumber
+\end{align}
+
+\subsection{2й пример в стиле Юры}
+\begin{minted}{ocaml}  
+let n = ref 0
+let acc = ref ""
+
+let loop () = 
+  if n = 0 then ()
+  else (acc := !acc + (int_to_char (!n%10)); n:= !n/10; loop ())
+
+let to_string m = 
+  if m < 0 then failwith "bad argument"
+  else if m = 0 then "0"
+  else (acc := ""; n := m; loop (); !acc)
+
+let main m = if (loop m = "") then fail else ()
+\end{minted}
+
 \end{document}
