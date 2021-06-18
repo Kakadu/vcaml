@@ -38,9 +38,9 @@
 \setsansfont[Scale=1.5]{CMU Sans Serif}
 
 \setmonofont[ BoldFont=lmmonolt10-bold.otf
-			, ItalicFont=lmmono10-italic.otf
-			, BoldItalicFont=lmmonoproplt10-boldoblique.otf
-			, Scale=1.5
+      , ItalicFont=lmmono10-italic.otf
+      , BoldItalicFont=lmmonoproplt10-boldoblique.otf
+      , Scale=1.5
 ]{lmmono9-regular.otf}
 
 \usepackage{unicode-math}
@@ -463,7 +463,7 @@ let n = ref 0
 let acc = ref ""
 
 let loop () = 
-  if n = 0 then ()
+  if !n = 0 then ()
   else (acc := !acc + (int_to_char (!n%10)); n:= !n/10; loop ())
 
 let to_string m = 
@@ -471,7 +471,121 @@ let to_string m =
   else if m = 0 then "0"
   else (acc := ""; n := m; loop (); !acc)
 
-let main m = if (loop m = "") then fail else ()
+let main m = if (to_string m = "") then fail else ()
+\end{minted}
+Будет кодироваться в:
+\begin{minted}{ocaml}
+type loc = string
+(* topIntHeap : (loc -> Int) -> loc -> Int *)
+let topIntHeap t l =
+  if l = "n" then 0 else t l
+(* topStringHeap : (loc -> string) -> loc -> String *)
+let topStringHeap t l =
+  if l = "acc" then "" else t l
+
+(* loopHeapInt : (loc -> Int) -> (loc -> string) -> () -> loc -> Int *)
+let loopHeapInt tInt1 tString1 () l =
+  if tInt1 "n" = 0 then tInt1 l
+  else
+    let tInt2 = int_to_charHeapInt tInt1 tString1 ((tInt1 "n") % 10)
+    let tString2 = int_to_charHeapString tInt1 tString1 ((tInt1 "n") % 10)
+    let tInt3 = tInt2
+    let tString3 l =
+      if l = "acc" then tString2 "acc" + int_to_charResult ((tInt1 "n") % 10)
+      else tString2 l
+    let tInt4 l =
+      if l = "n" then (tInt3 "n") / 10
+      else tInt3 l
+    let tString4 = tString3
+    loopHeapInt tInt4 tString4 () l
+
+(* loopHeapString : (loc -> Int) -> (loc -> string) -> () -> loc -> string *)
+let loopHeapString tInt1 tString1 () l =
+  if tInt1 "n" = 0 then tString1 l
+  else
+    let tInt2 = int_to_charHeapInt tInt1 tString1 ((tInt1 "n") % 10)
+    let tString2 = int_to_charHeapString tInt1 tString1 ((tInt1 "n") % 10)
+    let tInt3 = tInt2
+    let tString3 l =
+      if l = "acc" then tString2 "acc" + int_to_charResult ((tInt1 "n") % 10)
+      else tString2 l
+    let tInt4 l =
+      if l = "n" then (tInt3 "n") / 10
+      else tInt3 l
+    let tString4 = tString3
+    loopHeapString tInt4 tString4 () l
+
+(* loopResult : (loc -> Int) -> (loc -> string) -> () -> () *)
+let loopResult tInt tString () =
+  if tInt1 "n" = 0 then ()
+  else
+    let tInt2 = int_to_charHeapInt tInt1 tString1 ((tInt1 "n") % 10)
+    let tString2 = int_to_charHeapString tInt1 tString1 ((tInt1 "n") % 10)
+    let tInt3 = tInt2
+    let tString3 l =
+      if l = "acc" then tString2 "acc" + int_to_charResult ((tInt1 "n") % 10)
+      else tString2 l
+    let tInt4 l =
+      if l = "n" then (tInt3 "n") / 10
+      else tInt3 l
+    let tString4 = tString3
+    loopResult tInt4 tString4 ()
+
+(* to_stringHeapInt : (loc -> Int) -> (loc -> string) -> Int -> loc -> Int *)
+let to_stringHeapInt tInt1 tString1 m l =
+  if m < 0 then failwith "bad argument"
+  else if m = 0 then tInt1 l
+  else
+    let tInt2 = tInt1
+    let tString2 l =
+      if l = "acc" then ""
+      else tString1 l
+    let tInt3 l =
+      if l = "n" then m
+      else tInt2 l
+    let tString3 = tString2
+    loopHeapInt tInt3 tString3 () l
+
+(* to_stringHeapString : (loc -> Int) -> (loc -> string) -> Int -> loc -> string *)
+let to_stringHeapString tInt1 tString1 m l =
+  if m < 0 then failwith "bad argument"
+  else if m = 0 then tString1 l
+  else
+    let tInt2 = tInt1
+    let tString2 l =
+      if l = "acc" then ""
+      else tString1 l
+    let tInt3 l =
+      if l = "n" then m
+      else tInt2 l
+    let tString3 = tString2
+    loopHeapString tInt3 tString3 () l
+
+(* to_stringResult : (loc -> Int) -> (loc -> string) -> Int -> string *)
+let to_stringResult tInt tString m =
+  if m < 0 then failwith "bad argument"
+  else if m = 0 then "0"
+  else
+    let tInt2 = tInt1
+    let tString2 l =
+      if l = "acc" then ""
+      else tString1 l
+    let tInt3 l =
+      if l = "n" then m
+      else tInt2 l
+    let tString3 = tString2
+    let tInt4 = loopHeapInt tInt3 tString3 ()
+    let tString4 = loopHeapString tInt3 tString3 ()
+    tString4 "acc"
+
+(* mainResult : Int *)
+let mainResult tInt tString m =
+  if (to_stringResult tInt tString m = "") then fail else ()
+
+(* ub : loc -> 'a *)
+let ub l = failwith "ub"
+
+(* query:  mainResult (topIntHeap ub) (topStringHeap ub) m *)
 \end{minted}
 
 \end{document}
