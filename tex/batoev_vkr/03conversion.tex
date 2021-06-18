@@ -1,0 +1,268 @@
+\subsection{chainr1}
+
+\setminted{fontsize=\Large,baselinestretch=1}
+\defverbatim[colored]{\haskellChainrA}{
+\begin{minted}{haskell}
+chainr1 :: Parser a -> Parser (a -> a -> a) -> Parser a
+chainr1 p op = scan
+  where
+    scan     = do { x <- p; rest x }
+    rest x   = do { f <- op
+                  ; y <- scan
+                  ; return (f x y)
+                  }
+              <|> return x
+\end{minted}
+}
+
+
+\defverbatim[colored]{\haskellChainrB}{
+\begin{minted}{haskell}
+chainr1 p op = p >>= rest
+  where
+  
+    rest x = (op >>= \f ->
+              chainr1 p op >>= \y ->
+              pure (f x y))
+            <|> pure x
+\end{minted}
+}
+
+\defverbatim[colored]{\haskellChainrC}{
+\begin{minted}[escapeinside=!!]{haskell}
+chainr1 :: Parser a -> Parser (a -> a -> a) -> Parser a
+chainr1 p op = p <**> rest
+  where
+    rest :: Parser (a -> a)
+    -- N.B. arguments must go away   
+    rest !\textcolor{red}{x}! = (op >>= \f ->
+              chainr1 p op >>= \y ->
+              pure (!\textcolor{red}{f x y}!))
+            <|> pure x
+          
+-- (<**>) :: Applicative f => f a -> f (a -> b) -> f b
+\end{minted}
+}
+
+\defverbatim[colored]{\haskellChainrD}{
+\begin{minted}{haskell}
+chainr1 :: Parser a -> Parser (a -> a -> a) -> Parser a
+chainr1 p op = p <**> rest
+  where
+
+    rest   = (op >>= \f ->
+              chainr1 p op >>= \y ->
+              pure (flip f y))
+            <|> pure id
+          
+-- Уже компилируется, но надо избавиться от двух >>=
+-- и это очень просто
+\end{minted}
+}
+
+\defverbatim[colored]{\haskellChainrE}{
+\begin{minted}{haskell}
+chainr1 :: Parser a -> Parser (a -> a -> a) -> Parser a
+chainr1 p op = p <**> rest
+  where
+
+    rest   = (flip <$> op <*> chainr1 p op)
+            <|> pure id
+            
+-- C chainr1 всё
+
+-- С chainl1 будет посложнее            
+\end{minted}
+}
+
+%%% Now chainl 
+
+
+\defverbatim[colored]{\haskellChainlA}{
+\begin{minted}{haskell}
+chainl1 :: Parser a -> Parser (a -> a -> a) -> Parser a
+chainl1 p op = do { x <- p; rest x }
+  where
+    rest x   = do { f <- op
+                  ; y <- p
+                  ; rest (f x y)
+                  }
+                <|> return x
+\end{minted}
+}
+
+\defverbatim[colored]{\haskellChainlB}{
+\begin{minted}{haskell}
+chainl1 :: Parser a -> Parser (a -> a -> a) -> Parser a
+chainl1 p op = p >>= rest
+  where
+  
+    rest x  = op >>= \f ->
+              p  >>= \y ->
+              rest (f x y)
+              <|> return x
+\end{minted}
+}
+
+\defverbatim[colored]{\haskellChainlC}{
+\begin{minted}[escapeinside=!!]{haskell}
+chainl1 :: Parser a -> Parser (a -> a -> a) -> Parser a
+chainl1 p op = p !\textcolor{ForestGreen}{<**>}! rest
+  where
+    -- N.B. Аргумент нужно убирать
+    rest !\textcolor{red}{x}!  = op >>= \f ->
+              p  >>= \y ->
+              rest (!\textcolor{red}{f x y}!)
+              <|> return !\textcolor{ForestGreen}{id}!
+              
+-- рекурсивный вызов мешает
+-- Интуиция: реализуем foldl через foldr
+\end{minted}
+}
+\defverbatim[colored]{\haskellChainlD}{
+\begin{minted}{haskell}
+chainl1 :: Parser a -> Parser (a -> a -> a) -> Parser a
+chainl1 p op = p <**> rest
+  where
+    
+    rest   = (op >>= \f ->
+              p  >>= \y ->
+              (\ g x -> g (f x y)) <$> rest)
+              <|> pure id
+          
+-- Теперь превратим (\ g x -> g (f x y)) в парсер, 
+-- чтобы вытолкнуть rest наружу
+\end{minted}
+}
+
+\defverbatim[colored]{\haskellChainlE}{
+\begin{minted}{haskell}
+chainl1 :: Parser a -> Parser (a -> a -> a) -> Parser a
+chainl1 p op = p <**> rest
+  where
+
+    rest   = (op >>= \f ->
+              p  >>= \y ->
+              pure (\ g x -> g (f x y)) ) <*> rest
+            <|> pure id
+          
+-- (<*>) :: Applicative f => f (a -> b) -> f a -> f b
+\end{minted}
+}
+
+
+\defverbatim[colored]{\haskellChainlF}{
+\begin{minted}{haskell}
+chainl1 :: Parser a -> Parser (a -> a -> a) -> Parser a
+chainl1 p op = p <**> rest
+  where
+
+    rest   = (op >>= \f ->
+              p  >>= \y ->
+              -- pure (\ g x -> g (f x y)) 
+              -- pure (\ g x -> g (flip f y x)) 
+              -- pure (\ g -> g . flip f y)) 
+              pure (flip (.) (flip f y))
+              ) <*> rest
+            <|> pure id
+\end{minted}
+}
+
+\defverbatim[colored]{\haskellChainlG}{
+\begin{minted}{haskell}
+chainl1 :: Parser a -> Parser (a -> a -> a) -> Parser a
+chainl1 p op = p <**> rest
+  where
+
+    rest   = (op >>= \f ->
+              p  >>= \y ->
+              flip (.) <$> pure (flip f y))
+              ) <*> rest
+            <|> pure id
+          
+\end{minted}
+}
+
+\defverbatim[colored]{\haskellChainlH}{
+\begin{minted}{haskell}
+chainl1 :: Parser a -> Parser (a -> a -> a) -> Parser a
+chainl1 p op = p <**> rest
+  where
+
+    rest   =  flip (.) <$> 
+               (op >>= \f ->
+                p  >>= \y ->
+                pure (flip f y))
+                ) <*> rest
+            <|> pure id
+          
+
+\end{minted}
+}
+
+\defverbatim[colored]{\haskellChainlI}{
+\begin{minted}{haskell}
+chainl1 :: Parser a -> Parser (a -> a -> a) -> Parser a
+chainl1 p op = p <**> rest
+  where
+    rest :: Parser (a -> a)
+    rest =  
+      flip (.) <$> (flip <$> op <*> chainl1 p op) <*> rest
+      <|> pure id
+          
+-- Конец
+\end{minted}
+}
+
+\setminted{fontsize=\normalsize,baselinestretch=1}
+
+
+\begin{frame}[t]
+\haskellChainrA
+\end{frame}
+\begin{frame}[t]
+\haskellChainrB
+\end{frame}
+\begin{frame}[t]
+\haskellChainrC
+\end{frame}
+\begin{frame}[t]
+\haskellChainrD
+\end{frame}
+\begin{frame}[t]
+\haskellChainrE
+\end{frame}
+
+
+\subsection{chainl1}
+
+\begin{frame}[t]%{\haskellChainl}
+\haskellChainlA
+\end{frame}
+\begin{frame}[t]
+\haskellChainlB
+\end{frame}
+\begin{frame}[t]
+\haskellChainlC
+\end{frame}
+\begin{frame}[t]
+\haskellChainlD
+\end{frame}
+\begin{frame}[t]
+\haskellChainlE
+\end{frame}
+
+\begin{frame}[t]
+\haskellChainlF
+\end{frame}
+\begin{frame}[t]
+\haskellChainlG
+\end{frame}
+\begin{frame}[t]
+\haskellChainlH
+\end{frame}
+\begin{frame}[t]
+\haskellChainlI
+\end{frame}
+
+%% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

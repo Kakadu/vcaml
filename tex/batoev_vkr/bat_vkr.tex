@@ -1,0 +1,288 @@
+\documentclass[aspectratio=169
+  , xcolor={svgnames}
+  , hyperref={ colorlinks,citecolor=Blue
+             , linkcolor=DarkRed,urlcolor=DarkBlue}
+  , usenames, dvipsnames
+  , russian
+  ]{beamer}
+
+
+\usepackage{pgfpages}
+\usepackage{graphicx}   % for \includegraphics{file.pdf}
+
+\usepackage{tikz}
+\usetikzlibrary{arrows,shapes}
+\usepackage{dot2texi}
+
+\input{heading}
+%\title{Staged Selective парсер-комбинаторы}
+%\subtitle{Staged Selective Parser Combinators}
+
+%\date{1 марта 2021}
+%\author{Косарев Дмитрий} 
+\institute[]{\normalfont
+По статье <<Staged Selective Parser Combinators>> \\c конференции
+IFCP 2020}
+
+
+%\AtBeginSection[]
+%{
+%  \begin{frame}<beamer>
+%    \frametitle{Оглавление}
+%    \tableofcontents[currentsection,currentsubsection]
+%  \end{frame}
+%} 
+%\AtBeginSubsection[]
+%{
+%  \begin{frame}<beamer>
+%    \frametitle{Оглавление}
+%    \tableofcontents[ currentsection
+%                    , currentsubsection
+%                    ]
+%  \end{frame}
+%}
+
+\begin{document}
+\pgfdeclarelayer{background}
+\pgfdeclarelayer{foreground}
+\pgfsetlayers{background,main,foreground}
+% Title page 
+\begin{frame}
+%   \tikz [overlay] {
+%    \node at
+%        ([yshift=-10cm,xshift=-2cm]current page.east) 
+%        {\includegraphics[height=2cm]{pictures/SPbGU_Logo.png}};
+%    \node at
+%        ([yshift=-10cm,xshift=2cm]current page.west) 
+%        {\includegraphics[height=1.5cm]{pictures/jetbrainsResearch.pdf}};
+%   }
+   \titlepage
+\end{frame}
+
+\begin{comment}
+
+\begin{frame}[fragile]{}
+\begin{tikzpicture}[>=latex',scale=0.8]
+    % set node style
+    \tikzstyle{n} = [draw,shape=circle,minimum size=2em,
+                        inner sep=0pt,fill=red!20]
+    \begin{dot2tex}[dot,tikz,codeonly,styleonly,options=-s -tmath]
+        digraph G  {
+            node [style="n"];
+            A_1 -> B_1; A_1 -> B_2; A_1 -> B_3;
+            B_1 -> C_1; B_1 -> C_2;
+            B_2 -> C_2; B_2 -> C_3;
+            B_3 -> C_3; B_3 -> C_4;
+        }
+    \end{dot2tex}
+    % annotations
+    \node[left=1em] at (C_1.west)  (l3) {Level 3};
+    \node at (l3 |- B_1) (l2){Level 2};
+    \node at (l3 |- A_1) (l1) {Level 1};
+    % Draw lines to separate the levels. First we need to calculate
+    % where the middle is.
+    \path (l3) -- coordinate (l32) (l2) -- coordinate (l21) (l1);
+    \draw[dashed] (C_1 |- l32) -- (l32 -| C_4);
+    \draw[dashed] (C_1 |- l21) -- (l21 -| C_4);
+    \draw[<->,red] (A_1) to[out=-120,in=90] (C_2);
+    % Highlight the A_1 -> B_1 -> C_2 path. Use layers to draw
+    % behind everything.
+    \begin{pgfonlayer}{background}
+        \draw[rounded corners=2em,line width=3em,blue!20,cap=round]
+                (A_1.center) -- (B_1.west) -- (C_2.center);
+    \end{pgfonlayer}
+\end{tikzpicture}
+\end{frame}
+\end{comment}
+
+\everymath{\displaystyle}
+
+
+\begin{frame}[fragile,plain]
+\centering
+\includegraphics[height=15cm]{graph.pdf}
+\end{frame}
+
+\begin{frame}[fragile]
+\begin{minted}{ocaml}
+val propDirSymExec: locs:(loc set) -> program -> unit
+(* возвращает хрен знает что
+*)
+
+val start: loc -> unit 
+(* обновляет startState, Qf, T(loc) 
+и много раз вызывает addWitness
+*)
+\end{minted}
+\end{frame}
+
+\begin{frame}[fragile]
+\begin{minted}{ocaml}
+type pob = { loc : loc; φ : formula; lvl : level }
+type state = {
+loc : loc; PC : formula; store : store;
+loc0 : formula; lvl : level; pobs : Set<pob> }
+
+\end{minted}
+\end{frame}
+\begin{frame}[fragile]
+% TODO: почему pygmentize так подсвечивает юникод?
+
+\begin{minipage}{0.49\linewidth}
+\begin{minted}{ocaml}
+curLvl : level
+
+mainPobs : pob set
+(* главные запросы *)
+pobs : pob set
+
+Qf : state set
+
+Qb : (pob * state) set
+\end{minted}
+\end{minipage}\hspace{0cm}
+\begin{minipage}{0.49\linewidth}
+\begin{minted}{ocaml}
+witnesses : pob -> state set 
+blockedLocs : (pob, loc set) map
+pobsLocs : loc set
+T : loc -> state set
+L : loc × level -> formula set
+\end{minted}
+
+\end{minipage}
+
+\end{frame}
+
+\begin{frame}[fragile]
+\begin{minted}{ocaml}
+val propDirSymExec: loc set -> program -> unit 
+(* изменяет pobs, curLvl
+  вызывает ChooseAction, forward, backward, start, nextLevel
+*)
+
+val forward: state -> unit 
+(* обновляет Qf,T
+    вызывает blockWitness 
+*)
+
+val backward: pob -> state -> program -> level -> unit 
+(* обновляет Qb, lvl, принятый pob, child
+    вызывает WLP, overApxm, addWitness, encode,
+              checkInductive, generalize, answerYes
+*)
+\end{minted}
+\end{frame}
+
+\begin{frame}[fragile]
+\begin{minted}{ocaml}
+val answerYes: pob -> 'wtf
+val answerNo: pob -> 'wtf
+(* выдают финальный ответ, не реализованы,
+  Должны смотреть на pob, с помощью child находит его детей (? или родителей) 
+  и обрушать их во множествах pobs и mainPobs
+ *)
+val child: (pob, pob set) map 
+(* Так себе описан *)
+
+val canReach: loc -> loc -> locs -> bool 
+(* проверяет наличие межпроцедурного пути в CFG от локации loc1 до loc2, 
+не посещающего ни одну из локаций locs
+*)
+val checkInductive: level -> unit 
+(* обновляет L
+  вызывает WLP, overApxm
+*)
+\end{minted}
+\end{frame}
+
+\begin{frame}[fragile]
+\begin{minted}{ocaml}
+val addWitness: state -> pob -> unit
+(* вызывет canReach
+  обновляет s.pobs и witnesses[state]
+*)
+
+val blockWitness: state -> pob -> unit 
+(* обновляет witnesses, blockedLocs
+  вызывет blockWitness, canReach
+*)
+\end{minted}
+\end{frame}
+
+\begin{frame}[fragile]
+\begin{minted}{ocaml}
+val eL: loc -> level -> formula
+
+\end{minted}
+Сильно использует в себе функцию 
+\begin{minted}{ocaml}
+val over_apxm : loc -> lvl:level -> cur_lvl:level -> formula
+\end{minted}
+
+
+\begin{minted}{ocaml}
+val encode: state -> formula
+(* Использует mkPrime *)
+
+val wlp: state -> formula -> formula
+(* Использует encode & mkPrime *)
+
+\end{minted}
+\end{frame}
+
+
+\begin{frame}[allowframebreaks]
+\frametitle<presentation>{Ссылки}
+\begin{thebibliography}{10}
+
+  \bibitem{icfp2020}
+    Staged Selective Parser Combinators
+    \newblock {\em Jamie Willis \& Nicolas Wu \& Matthew Pickering}
+    \newblock \url{https://doi.org/10.1145/3409002}
+
+  \bibitem{berlin2020}
+    Garnishing Parsec With Parsley: A Staged Selective Parser Combinator Library
+    \newblock {\em Jamie Willis}
+    \newblock \url{https://www.youtube.com/watch?v=tJcyY9L2z84}
+
+
+  \bibitem{selective}
+     Selective Applicative Functors
+    \newblock {\em Andrey Mokhov \& Georgy Lukyanov \& Simon Marlow \& Jeremie Dimino}
+    \newblock \url{https://doi.org/10.1145/3341694}
+ 
+  \bibitem{cuts}
+    Библиотека FastParse для Scala
+    \newblock \href{https://webcache.googleusercontent.com/search?q=cache:WSoAEDqEOakJ:https://www.lihaoyi.com/fastparse/}{Documentation}
+   
+  \bibitem{trylookahead}
+    Try vs. lookahead
+    \newblock \url{https://stackoverflow.com/questions/20020350}
+    
+%  \bibitem{gerasimov}
+%     Курс математической логики и теории вычислимости
+%     \newblock {\em Герасимов А.С.}     
+%     \newblock \href{https://www.mccme.ru/free-books/gerasimov-3ed-mccme.pdf}{PDF}
+%
+%  \bibitem{}
+%    A Tutorial Introduction to the Lambda Calculus
+%    \newblock {\em Ra\'ul Rojas}     
+%    \newblock \href{https://www.inf.fu-berlin.de/lehre/WS03/alpi/lambda.pdf}{PDF}
+%
+%  \bibitem{sicp}
+%    Structure and Interpretation of Computer Programs
+%    \newblock {\em Abelson, Harold and Sussman, Gerald Jay and {with~Julie~Sussman}}     
+%    \newblock \href{https://web.mit.edu/alexmv/6.037/sicp.pdf}{PDF}
+%
+%  \bibitem{olegSKI}
+%    λ to SKI, Semantically (Declarative Pearl)
+%    \newblock {\em Oleg Kiselyov}
+%    \newblock \href{http://okmij.org/ftp/tagless-final/ski.pdf}{PDF}
+    
+\end{thebibliography}
+ \end{frame}
+
+
+
+\end{document}

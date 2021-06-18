@@ -1,0 +1,275 @@
+\usepackage{comment}
+
+\newcommand{\authorTemplate}{kakadu}
+%\newcommand{\authorTemplate}{daniil}
+
+\usepackage{ifthen}
+\ifthenelse{\equal{\authorTemplate}{kakadu}}
+{% True case
+  \newcommand{\result}{Template is Kakadu.}
+
+  \usetheme{CambridgeUS}
+  \usefonttheme{professionalfonts}
+   
+  % get rid of header navigation bar
+  \setbeamertemplate{headline}{}
+  % get rid of bottom navigation symbols
+  \setbeamertemplate{navigation symbols}{}
+  % get rid of footer
+  %\setbeamertemplate{footline}{}
+  %\setbeamertemplate{note page}[plain]
+  %\setbeameroption{show notes on second screen=right}
+  \addtobeamertemplate{title page}{}{
+    \begin{center}{\tiny Build date: \today}\end{center}
+  }
+}
+{% false case
+  \newcommand{\result}{Template is NOT Kakadu.}
+   
+  \usetheme{CambridgeUS}
+  \usefonttheme{professionalfonts}
+     
+   \usepackage{amssymb,amsmath,cancel,cite,color,cmap,float,graphicx,
+     lmodern,listings,
+     multirow,pifont,pgfplots,txfonts,tikz,wrapfig,xcolor,yfonts}
+   \addtobeamertemplate{navigation symbols}{}{
+     \usebeamerfont{footline}
+     \fontsize{14pt}{14}\selectfont
+     \usebeamercolor[fg]{footline}
+     \hspace{1em}
+     \circled{$\textswab{\insertframenumber}$}
+   }
+  }
+
+
+
+
+
+\usepackage{xcolor}
+\definecolor{YellowGreen} {HTML}{B5C28C}
+\definecolor{ForestGreen} {HTML}{009B55}
+\definecolor{MyBackground}{HTML}{F0EDAA}
+
+\usepackage{xltxtra} % load xunicode
+\usepackage{polyglossia}
+\setmainlanguage{english}
+\setotherlanguage{russian}
+%\setmainlanguage{russian}
+%\setotherlanguage{english}
+
+%\let\cyrillicfonttt\monofamily
+%\let\cyrillicfont\rmfamily
+%\usepackage{fontspec}
+%\newfontfamily{\cyrillicfont}{\rmfamily}
+
+%\newfontfamily\dejaVuSansMono{DejaVu Sans Mono}
+% https://github.com/vjpr/monaco-bold/raw/master/MonacoB/MonacoB.otf
+%\newfontfamily\monacoB{MonacoB}
+
+  
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\setmainfont[
+ Ligatures=TeX,
+ Extension=.otf,
+ BoldFont=cmunbx,
+ ItalicFont=cmunti,
+ BoldItalicFont=cmunbi,
+]{cmunrm}
+% С засечками (для заголовков)
+\setsansfont[
+ Ligatures=TeX,
+ Extension=.otf,
+ BoldFont=cmunsx,
+ ItalicFont=cmunsi,
+]{cmunss}
+\setmonofont{Latin Modern Mono}
+
+\usefonttheme{professionalfonts}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\usepackage{listings}
+\lstdefinelanguage{ocanren}{
+keywords={run, conde, fresh, let, in, match, with, when, class, type,
+object, method, of, rec, repeat, until, while, not, do, done, as, val, inherit,
+new, module, sig, deriving, datatype, struct, if, then, else, open, private, virtual, include, success, failure,
+true, false},
+sensitive=true,
+commentstyle=\small\itshape\ttfamily,
+keywordstyle=\ttfamily\textbf,
+identifierstyle=\ttfamily,
+basewidth={0.5em,0.5em},
+columns=fixed,
+mathescape=true,
+fontadjust=true,
+literate={fun}{{$\lambda$}}1 {->}{{$\to$}}3 {===}{{$\equiv$}}1 {=/=}{{$\not\equiv$}}1 {|>}{{$\triangleright$}}3 {\\/}{{$\vee$}}2 {/\\}{{$\wedge$}}2 {^}{{$\uparrow$}}1,
+morecomment=[s]{(*}{*)}
+}
+
+\lstset{
+language=ocanren
+}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\usepackage{times}
+
+
+\usepackage{amsmath}
+%\DeclareMathOperator{->}{\rightarrow}
+%\newcommand\iso{\ensuremath{\cong}}
+\newcommand{\Haskell}{\textsc{Haskell}}
+\newcommand{\haskell}{\Haskell}
+\newcommand{\OCaml}{\textsc{OCaml}}
+\newcommand{\miniKanren}{\textsc{miniKanren}}
+\newcommand{\OCanren}{\textsc{OCanren}}
+\newcommand{\noCanren}{\textsc{noCanren}}
+\newcommand{\newln}{\vspace{1em}}
+
+
+\usepackage{subcaption}   % for subfigures
+\usepackage{verbatim}
+\usepackage{graphicx}   % for \includegraphics{file.pdf}
+
+\usepackage{fontawesome}
+%\newfontfamily{\FAPro}{Font Awesome 5 Pro}
+\expandafter\def\csname faicon@facebook\endcsname{{\FA\symbol{"F09A}}}
+\def\faQuestionSign{{\FA\symbol{"F059}}}
+\def\faQuestion{{\FA\symbol{"F128}}}
+\def\faExclamation{{\FA\symbol{"F12A}}}
+\def\faUploadAlt{{\FA\symbol{"F093}}}
+\def\faLemon{{\FA\symbol{"F094}}}
+\def\faPhone{{\FA\symbol{"F095}}}
+\def\faCheckEmpty{{\FA\symbol{"F096}}}
+\def\faBookmarkEmpty{{\FA\symbol{"F097}}}
+
+%\def\faSadTear{{\FAPro\symbol{"F5B4}}}
+%\def\faMeh{{\FAPro\symbol{"F11A}}}
+%\def\faGrinStars{{\FAPro\symbol{"F587}}}
+
+\newcommand{\faGood}{\textcolor{ForestGreen}{\faThumbsUp}}
+\newcommand{\faBad}{\textcolor{red}{\faThumbsODown}}
+\newcommand{\faWrong}{\textcolor{red}{\faTimes}}
+\newcommand{\faMaybe}{\textcolor{blue}{\faQuestion}}
+\newcommand{\faCheckGreen}{\textcolor{ForestGreen}{\faCheck}}
+
+
+% sudo aptget install ttf-mscorefonts-installer
+\defaultfontfeatures{Ligatures={TeX}}
+\setmainfont{Times New Roman}
+\setsansfont{CMU Sans Serif}
+
+\setmonofont[Scale=1.0,
+    BoldFont=lmmonolt10-bold.otf,
+    ItalicFont=lmmono10-italic.otf,
+    BoldItalicFont=lmmonoproplt10-boldoblique.otf
+]{lmmono9-regular.otf}
+
+\usepackage[cache=true]{minted}
+
+%\usepackage{inconsolata}
+
+%\newfontfamily{\monott}{Latin Modern Mono}
+
+\usepackage{listings}
+\lstdefinelanguage{ocanren}{
+keywords={run, conde, fresh, let, in, match, with, when, class, type,
+object, method, of, rec, repeat, until, while, not, do, done, as, val, inherit,
+new, module, sig, deriving, datatype, struct, if, then, else, open, private, virtual, include, success, failure,
+true, false},
+sensitive=true,
+commentstyle=\small\itshape\ttfamily
+,keywordstyle=\fontfamily{monott}\selectfont \textbf
+,identifierstyle=\fontfamily{monott}\selectfont%\ttfamily
+,basewidth={0.5em,0.5em},
+columns=fixed,
+mathescape=true,
+fontadjust=true,
+literate={fun}{{$\lambda$}}1 {->}{{$\to$}}3 {===}{{$\equiv$}}1 {=/=}{{$\not\equiv$}}1 {|>}{{$\triangleright$}}3 {\\/}{{$\vee$}}2 {/\\}{{$\wedge$}}2 {^}{{$\uparrow$}}1,
+morecomment=[s]{(*}{*)}
+}
+
+\setmonofont[Mapping=tex-text]{CMU Typewriter Text}
+\lstdefinelanguage{ocaml}{
+keywords={@type, function, fun, let, in, match, with, when, class, type,
+nonrec, object, method, of, rec, repeat, until, while, not, do, done, as, val, inherit, and,
+new, module, sig, deriving, datatype, struct, if, then, else, open, private, virtual, include, success, failure, switch,
+lazy, assert, true, false, end},
+sensitive=true,
+commentstyle=\small\itshape\ttfamily,
+keywordstyle=\ttfamily\bfseries, %\underbar,
+%identifierstyle=\fontfamily{cmtt}\selectfont\ttfamily,
+identifierstyle=\ttfamily,
+basewidth={0.5em,0.5em},
+columns=fixed,
+fontadjust=true,
+literate={->}{{$\to$}}3 {===}{{$\equiv$}}1 {=/=}{{$\not\equiv$}}1 {|>}{{$\triangleright$}}3 {\\/}{{$\vee$}}2 {/\\}{{$\wedge$}}2 {>=}{{$\ge$}}1 {<=}{{$\le$}} 1,
+morecomment=[s]{(*}{*)}
+}
+
+\def\HaskellTypeclassColor\PYG{k+kt}
+\def\HaskellCommentColor\PYG{c+c1}
+% TODO: https://tex.stackexchange.com/questions/4198/emphasize-word-beginning-with-uppercase-letters-in-code-with-lstlisting-package
+\lstdefinelanguage{haskell}{
+basicstyle=\large\ttfamily,   % Вот тут надо стиль ставить, а не у идентификаторов
+identifierstyle=\ttfamily,
+commentstyle=\HaskellCommentColor\itshape\HaskellCommentColor,
+sensitive=true,
+%
+classoffset=0
+  , keywords={where, let, in, when, class, type, data, of, do, as, val, inherit, module, sig, deriving, if, then, else, import , assert, true, false, end}
+  , keywordstyle=\ttfamily\bfseries\color{ForestGreen} %\underbar
+, classoffset=1
+  , morekeywords={pure,empty,select,branch,oneOf}
+  , keywordstyle=\color{RawSienna},
+classoffset=2
+  , morekeywords={Monad,Applicative,Selective,String
+      ,Either,Left,Right
+      ,Maybe,Some,None
+      }
+  , keywordstyle=\PYG{k+kt}
+, classoffset=0,
+%keywordstyle=[2]{\color{orange}},
+otherkeywords={::,<$>, >?>},
+%identifierstyle=\fontfamily{cmtt}\selectfont\ttfamily,
+%basewidth={0.5em,0.5em},
+columns=fixed,
+%fontadjust=true,
+%literate={->}{{$\to$}}3 {===}{{$\equiv$}}1 {=/=}{{$\not\equiv$}}1 {|>}{{$\triangleright$}}3 {\\/}{{$\vee$}}2 {/\\}{{$\wedge$}}2 {>=}{{$\ge$}}1 {<=}{{$\le$}} 1,
+%morecomment=[s]{(*}{*)}
+%, literate={\$}{{\textcolor{blue}{\$}}}1
+%, literate={<\$>}{{\textcolor{RawSienna}{\ <\$>\ } }}1
+%           {>?>}{{\textcolor{RawSienna}{\ >?>\ } }}1
+}
+% Для перевода теорем на русский
+\patchcmd{\definition}{Definition}{Определение}{}{}
+
+\definecolor{light-gray}{gray}{0.80}
+
+
+\usepackage{soul} % for \st that strikes through
+\usepackage[normalem]{ulem} % \sout
+\usepackage{tabulary}   % for \begin{tabular}{c|cp{2cm}cccc}, etc.
+\let\emptyset\varnothing
+\let\eps\varepsilon
+
+%%%% 
+\usepackage{tikz}
+\usetikzlibrary{cd}
+\usetikzlibrary{decorations.pathreplacing,calc,shapes,positioning,tikzmark}
+%\usetikzlibrary{arrows,shapes}
+
+% See also 
+% https://tex.stackexchange.com/questions/284165
+% https://tex.stackexchange.com/questions/284311
+\newcounter{tmkcount}
+
+\tikzset{
+ use tikzmark/.style={
+   remember picture,
+   overlay,
+   execute at end picture={
+     \stepcounter{tmkcount}
+   },
+ },
+ tikzmark suffix={-\thetmkcount}
+}
+% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

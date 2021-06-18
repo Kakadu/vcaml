@@ -1,0 +1,35 @@
+digraph G {
+//a_1 [texlbl="$\frac{\gamma}{x^2}$"];
+//a_1-> a_2 -> a_3 -> a_1;
+//a_3 [texlbl="\text{over\_apxm}"];
+eL [texlbl="\text{L}"];
+//a_3 -> eL;
+encode [texlbl="encode"];
+mkPrime [texlbl="mkPrime"];
+encode -> mkPrime;
+
+wlp -> mkPrime;
+wlp -> encode;
+
+forward -> executeInstruction;
+forward -> isSat; 
+forward -> addWitness;
+forward -> blockWitness;
+
+backward -> wlp;
+backward -> overApxm;
+backward -> addWitness;
+backward -> blockWitness;
+backward -> encode;
+backward -> checkInductive;
+backward -> generalize;
+
+checkInductive -> wlp;
+checkInductive -> overApxm;
+
+addWitness -> canReach;
+blockWitness -> canReach;
+blockWitness -> blockWitness;
+
+}
+

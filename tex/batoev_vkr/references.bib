@@ -1,0 +1,47 @@
+@article{parsleyICFP,
+author = {Willis, Jamie and Wu, Nicolas and Pickering, Matthew},
+title = {Staged Selective Parser Combinators},
+year = {2020},
+issue_date = {August 2020},
+publisher = {Association for Computing Machinery},
+address = {New York, NY, USA},
+volume = {4},
+number = {ICFP},
+url = {https://doi.org/10.1145/3409002},
+doi = {10.1145/3409002},
+abstract = {Parser combinators are a middle ground between the fine control of hand-rolled parsers and the high-level almost grammar-like appearance of parsers created via parser generators. They also promote a cleaner, compositional design for parsers. Historically, however, they cannot match the performance of their counterparts.  This paper describes how to compile parser combinators into parsers of hand-written quality. This is done by leveraging the static information present in the grammar by representing it as a tree. However, in order to exploit this information, it will be necessary to drop support for monadic computation since this generates dynamic structure. Selective functors can help recover lost functionality in the absence of monads, and the parser tree can be partially evaluated with staging. This is implemented in a library called Parsley.},
+journal = {Proc. ACM Program. Lang.},
+month = aug,
+articleno = {120},
+numpages = {30},
+keywords = {meta-programming, parsers, combinators}
+}
+
+@misc{OCanrenWeb,
+  title = {\texttt{OCanren}},
+  howpublished = {\url{https://github.com/JetBrains-Research/OCanren}},
+  note = {Accessed: 2020-05-18}
+}
+
+@misc{MiniKanrenWeb,
+  title = {\texttt{miniKanren}},
+  howpublished = {\url{https://minikanren.org}},
+  note = {Accessed: 2020-05-18}
+}
+
+@misc{ParsleyBerlin,
+  title = {Garnishing Parsec With Parsley: A Staged Selective Parser Combinator Library},
+  howpublished = {\url{https://www.youtube.com/watch?v=tJcyY9L2z84}},
+  note = {Accessed: 2021-02-18}
+}
+
+
+@misc{ParsleyHaskell,
+  title = {Work in progress implementation in Haskell},
+  howpublished = {\url{https://github.com/j-mie6/ParsleyHaskell}}
+}
+
+@misc{CSGApplicative,
+  title = {Parsing context-sensitive languages with Applicative},
+  howpublished = {\url{https://byorgey.wordpress.com/2012/01/05/parsing-context-sensitive-languages-with-applicative/}}
+}

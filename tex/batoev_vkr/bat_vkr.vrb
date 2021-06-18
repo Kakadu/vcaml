@@ -1,0 +1,18 @@
+\begin{minted}{ocaml}
+val eL: loc -> level -> formula
+
+\end{minted}
+Сильно использует в себе функцию
+\begin{minted}{ocaml}
+val over_apxm : loc -> lvl:level -> cur_lvl:level -> formula
+\end{minted}
+
+
+\begin{minted}{ocaml}
+val encode: state -> formula
+(* Использует mkPrime *)
+
+val wlp: state -> formula -> formula
+(* Использует encode & mkPrime *)
+
+\end{minted}

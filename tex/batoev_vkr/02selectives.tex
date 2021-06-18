@@ -1,0 +1,138 @@
+\setminted{fontsize=\Large,baselinestretch=1}
+
+\begin{frame}[fragile]{Monad}
+\begin{minted}{haskell}
+class Applicative m => Monad (m :: * -> *) where
+  -- | Inject a value into the monadic type.
+  return      :: a -> m a
+  return      = pure
+  
+  -- | Sequentially compose two actions, 
+  -- passing any value produced
+  -- by the first as an argument to the second.
+  (>>=)       :: forall a b. m a -> (a -> m b) -> m b
+\end{minted}
+\end{frame}
+
+
+\begin{frame}[fragile]
+\begin{minted}{haskell}
+satisfy :: (Char -> Bool) -> Parser Char 
+satisfy p = item >>= (\c -> 
+                        if p c then pure c 
+                        else        empty)
+  
+ident :: Parser String 
+ident = (satisfy isAlpha <:> 
+         many (satisfy isAlphaNum) ) >>= (\c -> 
+              if isKeyword c then empty
+              else                pure c)
+\end{minted}
+\end{frame}
+
+\begin{frame}[fragile]
+\begin{minted}{haskell}
+(>?>) :: Monad m => m a -> (a -> Bool) -> m a
+m >?> f = m >>= \x -> if f x then pure x else empty
+\end{minted}
+\newln
+
+\begin{minted}{haskell}
+satisfy :: (Char -> Bool) -> Parser Char 
+satisfy p = item >?> p
+  
+ident :: Parser String 
+ident = (satisfy isAlpha <:> 
+         many (satisfy isAlphaNum) ) 
+        >?> (not . isKeyword)
+\end{minted}
+\end{frame}
+
+\setminted{fontsize=\normalsize,baselinestretch=1}
+
+
+\begin{frame}
+\begin{center}
+\Large
+Монады классные, что же с ними не так и зачем нужны Selective функторы?
+\end{center}
+\end{frame}
+
+\setminted{fontsize=\Large,baselinestretch=1}
+\begin{frame}[fragile]{Selective}
+\begin{minted}{haskell}
+-- case expression abstracted
+class Applicative f => Selective f where
+  -- In the original paper 
+  select :: f (Either a b) -> f (a -> b) -> f b
+  
+  -- alternative definition, used by Parsley
+  branch :: f (Either a b) -> f (a -> c) -> f (b -> c) 
+         -> f c
+\end{minted}
+\end{frame}
+
+
+
+\begin{frame}[fragile]{Реализация \mintinline{haskell}{>?>}}
+\Large
+С помощью \mintinline{haskell}{Monad}
+\begin{lstlisting}[language=haskell
+  , basicstyle=\Large\ttfamily
+  , escapeinside={!}{!}
+  ]
+(>?>) :: Monad m => m a -> (a -> Bool) -> m a
+m >?> f = m >>= !\tikzmark{a}! \ x -> if f x then pure x else empty !\tikzmark{b}!
+\end{lstlisting}
+\begin{tikzpicture}[remember picture,overlay]
+  \draw[red,rounded corners]
+    ([shift={(-3pt,2ex)}]pic cs:a) 
+      rectangle 
+    ([shift={(3pt,-0.65ex)}]pic cs:b);
+\end{tikzpicture}
+\pause 
+
+С помощью \mintinline{haskell}{Selective}
+\begin{lstlisting}[language=haskell
+  , basicstyle=\Large\ttfamily
+  , escapechar=!
+  , mathescape=false
+  ]
+(>?>) :: Selective m => m a -> (a -> Bool) -> m a
+fx >?> f = select (  !\tikzmark{c}!(\ x -> !\tikzmark{d}!
+!\tikzmark{e}!  if f x then Right () 
+  else        Left ()) !\tikzmark{f}!   <$> fx) empty 
+\end{lstlisting}
+\begin{tikzpicture}[remember picture,overlay]
+\draw[red,rounded corners]
+  ([shift={(-3pt,2.5ex)}]pic cs:c) 
+    rectangle 
+  ([shift={(3pt,-0.5ex)}]pic cs:d);
+\draw[red,rounded corners]
+  ([shift={(-3pt,2.2ex)}]pic cs:e) 
+    rectangle 
+  ([shift={(3pt,-0.65ex)}]pic cs:f);
+\end{tikzpicture}
+% Со второй реализацией статически знаем больше 
+\end{frame}
+
+\begin{frame}[fragile]{Чего не умеют \mintinline{haskell}{Selective}?}
+\Large 
+\begin{itemize}
+\item Использовать несколько предыдущих результатов
+
+  \lstinline[language=haskell, basicstyle=\Large\ttfamily]{mf >>= \ f -> mg >>= \ g -> mh >>= \ h -> ... }
+\item Монадический join:
+
+ \lstinline[language=haskell, basicstyle=\Large\ttfamily]{join :: m (m a) -> m a}
+\end{itemize}
+\newln 
+
+\begin{block}{Замечание}
+Если \mintinline{haskell}{Selective} не умеют \mintinline{haskell}{join}
+или \mintinline{haskell}{Applicative} не умеют КЗ-грамматики, то это не значит, что работающий парсер нельзя написать.
+\end{block}
+\end{frame}
+
+
+\setminted{fontsize=\normalsize,baselinestretch=1}
