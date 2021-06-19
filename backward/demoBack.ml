@@ -106,6 +106,7 @@ module POB = struct
     | n -> n
 
   let loc {pob_loc} = pob_loc
+  let pob_lvl {pob_lvl} = pob_lvl
   let level : ground_level t -> int = function {pob_lvl= LvlInt n} -> n
   let formula {phi} = phi
   let create pob_loc phi pob_lvl = {pob_loc; phi; pob_lvl}
@@ -137,6 +138,7 @@ module POB = struct
 
     let empty : t = Set.empty cmp
     let add_exn : 'a pob -> t -> t = fun k s -> Set.add s (X.POB k)
+    let remove : 'a pob -> t -> t = fun k s -> Set.remove s (X.POB k)
 
     let compare : t -> t -> int =
      (* TODO: Ask why I should write this shit *)
@@ -158,6 +160,13 @@ module POB = struct
 
     let find_exn : 'a pob -> 'b t -> 'b =
      fun k m -> Base.Map.find_exn m (X.POB k)
+
+    let remove_all ~key t = Base.Map.remove t (X.POB key)
+    let remove ~key t data = Base.Map.remove t (X.POB key)
+    let update = Base.Map.update
+    (* let replace key date m =
+       match Base.Map.add ~key ~data m with
+       | `Duplicate -> find_exn key m *)
   end
 end
 
@@ -171,7 +180,7 @@ module State = struct
     ; store: Store.t
     ; loc0: Loc.t
     ; lvl: ground_level level_t
-    ; pobs: POB.Set.t }
+    ; mutable pobs: POB.Set.t }
 
   let my_compare {idx} {idx= idx2} = compare_int idx idx2
   let index {idx} = idx
@@ -187,6 +196,9 @@ module State = struct
   let create ~loc ~loc0 store pc lvl pobs =
     incr last ;
     {idx= !last; loc; loc0; pc; store; lvl; pobs}
+
+  let add_pob st pob = st.pobs <- POB.Set.add_exn pob st.pobs
+  let remove_pob st pob = st.pobs <- POB.Set.remove pob st.pobs
 
   module X = struct
     type nonrec t = t
@@ -284,6 +296,23 @@ module LocLevelMap = struct
   let add_ground_lvl (loc, lvln) = add (loc, LvlInt lvln)
 end
 
+module Witnesses = struct
+  (* include (POB.Map: (module type of POB.Map) with type 'a t := (POB.X.gt, int, POB.X.comparator_witness) Base.Map.t) *)
+  include POB.Map
+
+  type ws = State.Set.t t
+
+  let add_multi ~key ~data m : ws =
+    Base.Map.update m (POB.X.POB key) ~f:(function
+      | None -> State.Set.singleton data
+      | Some s -> State.Set.add data s )
+
+  let iter_key ~key m ~f =
+    State.Set.iter (Base.Map.find_exn m (POB.X.POB key)) ~f
+
+  let find_exn ~key m = POB.Map.find_exn key m
+end
+
 type globals =
   { mutable curLvl: ground_level level_t
   ; mutable main_pobs: pobs_set
@@ -307,8 +336,8 @@ module type IFACE = sig
     ground_level pob -> state -> program -> ground_level level_t -> unit
 
   val checkInductive : 'a level_t -> unit
-  val addWitness : state -> 'a pob -> unit
-  val blockWitness : state -> 'a pob -> unit
+  val addWitness : state -> ground_level pob -> unit
+  val blockWitness : state -> ground_level pob -> unit
 
   val overApxm :
        Loc.t
@@ -390,6 +419,18 @@ module G = struct
 
   let blocked_locs g _ = assert false
   let t p' = assert false
+
+  let add_witness g ~(key : _ POB.t) st =
+    g.witnesses <- Witnesses.add_multi ~key ~data:st g.witnesses
+
+  let remove_witness g ~key w =
+    g.witnesses <- Witnesses.remove ~key g.witnesses w
+
+  let block_loc g p loc =
+    g.blocked_locs <-
+      POB.Map.update g.blocked_locs (POB.X.POB p) ~f:(function
+        | None -> Loc.Set.singleton loc
+        | Some ss -> Loc.Set.add loc ss )
 end
 
 module IMPL : IFACE = struct
@@ -407,8 +448,29 @@ module IMPL : IFACE = struct
     ; child= POB.Map.empty }
 
   let g : globals = init_globals ()
-  let addWitness _ _ = assert false
-  let blockWitness _ _ = assert false
+  let canReach _ ~dest:_ _ = assert false
+
+  let addWitness st (p : ground_level POB.t) =
+    if
+      State.level st <= POB.level p
+      && canReach (State.loc st) ~dest:(POB.loc p) (G.blocked_locs g p)
+    then
+      let () = G.add_witness g ~key:p st in
+      State.add_pob st p
+
+  let rec blockWitness s' p' =
+    With_return.with_return (fun r ->
+        State.remove_pob s' p' ;
+        G.remove_witness g ~key:p' s' ;
+        Witnesses.iter_key g.witnesses ~key:p' ~f:(fun s ->
+            if State.loc0 s = State.loc0 s' then r.return () ) ;
+        G.block_loc g p' (State.loc0 s') ;
+        State.Set.iter (Witnesses.find_exn g.witnesses ~key:p') ~f:(fun s ->
+            if
+              not
+                (canReach (State.loc s) ~dest:(POB.loc p') (G.blocked_locs g p'))
+            then blockWitness s p' ) )
+
   let wlp _ _ = assert false
   let isSat _ = assert false
   let isUnsat _ = assert false
@@ -416,7 +478,6 @@ module IMPL : IFACE = struct
   let answerNo _ = assert false
   let overApxm _ ~lvl:_ ~cur_lvl:_ = assert false
   let nextLevel _ = assert false
-  let canReach _ ~dest:_ _ = assert false
   let executeInstruction _ _ = assert false
   let mkPrime _ = assert false
   let checkInductive _ = assert false
@@ -502,8 +563,11 @@ module IMPL : IFACE = struct
         if Loc.Set.mem (State.loc s') g.pobs_locs then
           G.add_to_t g (State.loc s') s' ;
         POB.Set.iter (State.pobs s) ~f:(fun (POB.X.POB p) ->
-            addWitness s' p ;
-            if POB.loc p = State.loc s' then G.add_to_qb g (p, s') ) ) ;
+            match POB.pob_lvl p with
+            | LvlInf -> assert false
+            | LvlInt lvl ->
+                addWitness s' p ;
+                if POB.loc p = State.loc s' then G.add_to_qb g (p, s') ) ) ;
     POB.Set.iter (State.pobs s) ~f:(fun (POB.X.POB p) ->
         if POB.loc p <> State.loc s then blockWitness s p )
 
