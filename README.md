@@ -10,9 +10,9 @@ OPAM 2.x ([Ubuntu PPA](https://launchpad.net/~avsm/+archive/ubuntu/ppa-opam-expe
 
 ### Compile
 
-    dune build main.exe
+    dune build ./main.exe
 
 ### Compile & run on input file
 
-    dune exec ./main.exe -- -impl examples/arith.ml
-    dune exec ./main.exe -- -impl examples/fib.ml
+    dune exec ./main.exe -- examples/arith.ml
+    dune exec ./main.exe -- examples/fib.ml
