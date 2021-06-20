@@ -1,6 +1,8 @@
 open Base
 open Ppx_compare_lib.Builtin
 
+let failwiths fmt = Format.kasprintf failwith fmt
+
 module Loc = struct
   type t = int [@@deriving compare]
 
@@ -31,6 +33,8 @@ type 'a level_t =
   | LvlInt : int -> ground_level level_t
   | LvlInf : inf_level level_t
 
+let int_of_level : ground_level level_t -> int = function LvlInt n -> n
+
 let compare_level_t :
       'a 'b. ('a -> 'b -> int) -> 'a level_t -> 'b level_t -> int =
   fun (type a b) _ (a : a level_t) (b : b level_t) : int ->
@@ -47,7 +51,8 @@ module Term = struct
   [@@deriving compare]
 
   let symb s = Symb s
-  let var s = ConcVar s
+
+  (* let var s = ConcVar s *)
   let add l r = Add (l, r)
   let ( + ) = add
   let int n = Int n
@@ -79,6 +84,26 @@ module Formula = struct
     let compare = compare
   end)
 end
+
+let z3_of_formula f =
+  let ctx = Z3.mk_context [] in
+  let open FancyZ3 in
+  let (module T), (module F) = FancyZ3.to_z3 ctx in
+  let rec ont = function
+    | Term.Symb s -> T.var s
+    | Int n -> T.const_int n
+    | Add (l, r) -> T.add (ont l) (ont r)
+    | _ -> failwith "TODO: remove concrete vars"
+  and onf = function
+    | Formula.True -> F.true_
+    | False -> F.not F.true_
+    | Conj (l, r) -> F.conj (onf l) (onf r)
+    | Disj (l, r) -> F.disj (onf l) (onf r)
+    | EQ (l, r) -> F.eq (ont l) (ont r)
+    | LT (l, r) -> F.lt (ont l) (ont r)
+    | LE (l, r) -> F.le (ont l) (ont r)
+    | Term t -> ont t in
+  (onf f, ctx)
 
 module Store = struct
   module StringMap = Stdlib.Map.Make (String)
@@ -137,6 +162,7 @@ module POB = struct
       (module X)
 
     let empty : t = Set.empty cmp
+    let is_empty = Set.is_empty
     let add_exn : 'a pob -> t -> t = fun k s -> Set.add s (X.POB k)
     let remove : 'a pob -> t -> t = fun k s -> Set.remove s (X.POB k)
 
@@ -294,6 +320,7 @@ module LocLevelMap = struct
    fun (l, l2) v m -> add (Key.X (l, l2)) v m
 
   let add_ground_lvl (loc, lvln) = add (loc, LvlInt lvln)
+  let find_exn ~key:(loc, lvl) m = find (Key.X (loc, lvl)) m
 end
 
 module Witnesses = struct
@@ -313,6 +340,14 @@ module Witnesses = struct
   let find_exn ~key m = POB.Map.find_exn key m
 end
 
+type strategy_rez =
+  | SRStart : Loc.t -> strategy_rez
+  | SRGoFront : State.t -> strategy_rez
+  | SRGoBack : ground_level POB.t * State.t -> strategy_rez
+
+type strategy_t =
+  {chooseAction: program -> state_set -> pob_state_set -> strategy_rez}
+
 type globals =
   { mutable curLvl: ground_level level_t
   ; mutable main_pobs: pobs_set
@@ -324,9 +359,8 @@ type globals =
   ; mutable pobs_locs: loc_set
   ; mutable t: state_set Loc.Map.t
   ; mutable l: Formula.Set.t LocLevelMap.t
-  ; mutable child: pobs_set POB.Map.t }
-
-type strategy_t = {chooseAction: unit -> unit}
+  ; mutable child: pobs_set POB.Map.t
+  ; strategy: strategy_t }
 
 module type IFACE = sig
   val propDirSymExec : loc_set -> program -> unit
@@ -339,12 +373,8 @@ module type IFACE = sig
   val addWitness : state -> ground_level pob -> unit
   val blockWitness : state -> ground_level pob -> unit
 
-  val overApxm :
-       Loc.t
-    -> lvl:ground_level level_t
-    -> cur_lvl:ground_level level_t
-    -> Formula.t
-
+  (* TODO: replace ints by ground_levels *)
+  val overApxm : Loc.t -> lvl:int -> cur_lvl:ground_level level_t -> Formula.t
   val encode : state -> Formula.t
   val wlp : state -> Formula.t -> Formula.t
 
@@ -354,12 +384,15 @@ module type IFACE = sig
   val answerYes : 'a pob -> unit
   val answerNo : 'a pob -> unit
   val nextLevel : ground_level level_t -> unit
-  val canReach : Loc.t -> dest:Loc.t -> loc_set -> bool
+  val canReach : Loc.t -> dst:Loc.t -> loc_set -> bool
   val executeInstruction : state -> Loc.t -> state_set
   val mkPrime : Formula.t -> Formula.t
 end
 
 module Hardcoded = struct
+  let canReach src ~dst locs =
+    failwiths "canReach not implemented: %d -> %d" src dst
+
   module State = struct
     let pM : _ POB.t = POB.create 7 True LvlInf
 
@@ -400,6 +433,10 @@ module Hardcoded = struct
         (LvlInt 0)
         POB.Set.(add_exn pM empty)
   end
+
+  let strat1 : strategy_t =
+    let chooseAction _ _ _ = assert false in
+    {chooseAction}
 end
 
 module G = struct
@@ -431,6 +468,9 @@ module G = struct
       POB.Map.update g.blocked_locs (POB.X.POB p) ~f:(function
         | None -> Loc.Set.singleton loc
         | Some ss -> Loc.Set.add loc ss )
+
+  let add_pob g p = g.pobs <- POB.Set.add_exn p g.pobs
+  let choose_action g prog = g.strategy.chooseAction prog g.qf g.qb
 end
 
 module IMPL : IFACE = struct
@@ -445,15 +485,16 @@ module IMPL : IFACE = struct
     ; pobs_locs= Loc.Set.empty
     ; t= Loc.Map.empty
     ; l= LocLevelMap.empty
-    ; child= POB.Map.empty }
+    ; child= POB.Map.empty
+    ; strategy= Hardcoded.strat1 }
 
   let g : globals = init_globals ()
-  let canReach _ ~dest:_ _ = assert false
+  let canReach src ~dst x = Hardcoded.canReach src ~dst x
 
   let addWitness st (p : ground_level POB.t) =
     if
       State.level st <= POB.level p
-      && canReach (State.loc st) ~dest:(POB.loc p) (G.blocked_locs g p)
+      && canReach (State.loc st) ~dst:(POB.loc p) (G.blocked_locs g p)
     then
       let () = G.add_witness g ~key:p st in
       State.add_pob st p
@@ -468,15 +509,36 @@ module IMPL : IFACE = struct
         State.Set.iter (Witnesses.find_exn g.witnesses ~key:p') ~f:(fun s ->
             if
               not
-                (canReach (State.loc s) ~dest:(POB.loc p') (G.blocked_locs g p'))
+                (canReach (State.loc s) ~dst:(POB.loc p') (G.blocked_locs g p'))
             then blockWitness s p' ) )
 
   let wlp _ _ = assert false
-  let isSat _ = assert false
-  let isUnsat _ = assert false
+
+  let isSat, isUnsat =
+    let helper onSat onUnsat f =
+      let z3f, ctx = z3_of_formula f in
+      let solver = Z3.Solver.mk_simple_solver ctx in
+      match Z3.Solver.check solver [z3f] with
+      | Z3.Solver.UNKNOWN -> failwith "should not happen"
+      | Z3.Solver.UNSATISFIABLE -> onUnsat ()
+      | Z3.Solver.SATISFIABLE -> onSat () in
+    ( helper (fun _ -> true) (fun _ -> false)
+    , helper (fun _ -> false) (fun _ -> true) )
+
   let answerYes _ = assert false
   let answerNo _ = assert false
-  let overApxm _ ~lvl:_ ~cur_lvl:_ = assert false
+
+  let overApxm loc ~lvl ~cur_lvl =
+    let apxm = ref Formula.False in
+    let () =
+      for lvl' = lvl to int_of_level cur_lvl do
+        apxm :=
+          Formula.Set.fold Formula.conj
+            (LocLevelMap.find_exn ~key:(loc, LvlInt lvl') g.l)
+            !apxm
+      done in
+    !apxm
+
   let nextLevel _ = assert false
   let executeInstruction _ _ = assert false
   let mkPrime _ = assert false
@@ -507,6 +569,18 @@ module IMPL : IFACE = struct
       | 4 -> x' <= _0 && x' = x && y' = y
       | _ -> failwith "Should not happen in demo example"
 
+  let start g loc =
+    (* Format.eprintf "How to create starting state is mysterious..." ; *)
+    let s =
+      State.create ~loc ~loc0:loc Store.empty Formula.True (LvlInt 0)
+        POB.Set.empty in
+    g.qf <- State.Set.add s g.qf ;
+    G.add_to_t g loc s ;
+    POB.Set.iter g.pobs ~f:(fun (POB.X.POB p) ->
+        match POB.pob_lvl p with
+        | LvlInf -> assert false
+        | LvlInt n -> addWitness s p )
+
   let backward p' s' prog cur_lvl =
     g.qb <- PobStateSet.(remove (p', s') g.qb) ;
     assert (Loc.eq (POB.loc p') (State.loc s')) ;
@@ -515,7 +589,7 @@ module IMPL : IFACE = struct
     let psi =
       Formula.conj
         (wlp s' (POB.formula p'))
-        (overApxm (State.loc0 s') ~lvl ~cur_lvl:g.curLvl) in
+        (overApxm (State.loc0 s') ~lvl ~cur_lvl) in
     ( if isSat psi then (
       if POB.loc p' = Program.ep prog then answerYes p'
       else
@@ -529,8 +603,8 @@ module IMPL : IFACE = struct
           ~f:(fun s -> G.add_to_qb g (p, s)) )
     else
       let () = blockWitness s' p' in
-      if canReach (Program.ep prog) ~dest:(POB.loc p') (G.blocked_locs g p')
-      then () (*return *)
+      if canReach (Program.ep prog) ~dst:(POB.loc p') (G.blocked_locs g p') then
+        () (*return *)
       else
         let () = answerNo p' in
         let apxm =
@@ -573,5 +647,19 @@ module IMPL : IFACE = struct
 
   let propDirSymExec locs prog =
     (* init_globals () ; *)
-    assert false
+    let rec loop () =
+      if POB.Set.is_empty g.main_pobs then ()
+      else
+        let () =
+          POB.Set.iter g.main_pobs ~f:(fun (POB.X.POB p) ->
+              G.add_pob g POB.(create (POB.loc p) Formula.True g.curLvl) ) in
+        let rec loop_pobs () =
+          match g.strategy.chooseAction prog g.qf g.qb with
+          | SRStart loc -> start g loc
+          | SRGoFront st -> forward st
+          | SRGoBack (p', st') -> backward p' st' prog g.curLvl in
+        let () = loop_pobs () in
+        g.curLvl <- nextLevel g.curLvl in
+    loop () ;
+    failwith "TODO: report error"
 end
