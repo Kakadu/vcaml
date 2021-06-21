@@ -3,7 +3,7 @@
  (modules FancyZ3 demoBack)
  (libraries z3 ppx_compare ppx_show.runtime )
  ; TODO: why ppx_compare without `runtime` but ppx_show needs it?
- (preprocess (pps ppx_compare ppx_show))
+ (preprocess (pps ppx_compare ppx_show ppx_sexp_conv))
  )
 
 (cram

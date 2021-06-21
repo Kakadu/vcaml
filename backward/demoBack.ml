@@ -5,7 +5,7 @@ let failwiths fmt = Format.kasprintf failwith fmt
 let log fmt = Format.kasprintf (Format.printf "%s") fmt
 
 module Loc = struct
-  type t = int [@@deriving compare]
+  type t = int [@@deriving compare, sexp_of]
 
   module X = struct
     type nonrec t = t
@@ -40,6 +40,7 @@ type ground_level
 type 'a level_t =
   | LvlInt : int -> ground_level level_t
   | LvlInf : inf_level level_t
+[@@deriving sexp_of]
 
 let int_of_level : ground_level level_t -> int = function LvlInt n -> n
 
@@ -59,47 +60,43 @@ let pp_level_t (type a) : Format.formatter -> a level_t -> unit =
   | LvlInt n -> Format.fprintf ppf "%d" n
   | LvlInf -> Format.fprintf ppf "∞"
 
-module Term = struct
-  type t = Symb of string | ConcVar of string | Add of t * t | Int of int
-  [@@deriving compare, show]
-
-  let symb s = Symb s
-
-  (* let var s = ConcVar s *)
-  let add l r = Add (l, r)
-  let ( + ) = add
-  let int n = Int n
-end
-
 module Formula = struct
   type t =
     | True
     | False
     | Conj of t * t
     | Disj of t * t
-    | LT of Term.t * Term.t
-    | EQ of Term.t * Term.t
-    | LE of Term.t * Term.t
-    | Term of Term.t
-  [@@deriving compare, show]
+    (* terms *)
+    | LT of t * t
+    | EQ of t * t
+    | LE of t * t
+    | Symb of string
+    (* | ConcVar of string *)
+    | Add of t * t
+    | Int of int
+  [@@deriving compare, show, sexp_of]
 
   let pp ppf =
     let rec helper = function
       | True -> Format.fprintf ppf "⊤"
       | False -> Format.fprintf ppf "⊥"
-      | LT (l, r) -> Format.fprintf ppf "(%a %s %a)" Term.pp l "<" Term.pp r
+      | LT (l, r) -> Format.fprintf ppf "(%a %s %a)" pp l "<" pp r
       | s -> pp ppf s in
     helper
 
+  let symb s = Symb s
+  let add l r = Add (l, r)
+  let ( + ) = add
+  let int n = Int n
   let true_ = True
   let false_ = False
-  let term t = Term t
   let le a b = LE (a, b)
   let ( <= ) = le
   let eq a b = EQ (a, b)
   let ( = ) = eq
   let conj a b = Conj (a, b)
   let ( && ) = conj
+  let var s = symb s
 
   module Set = Stdlib.Set.Make (struct
     type nonrec t = t
@@ -112,37 +109,35 @@ let z3_of_formula f =
   let ctx = Z3.mk_context [] in
   let open FancyZ3 in
   let (module T), (module F) = FancyZ3.to_z3 ctx in
-  let rec ont = function
-    | Term.Symb s -> T.var s
-    | Int n -> T.const_int n
-    | Add (l, r) -> T.add (ont l) (ont r)
-    | _ -> failwith "TODO: remove concrete vars"
-  and onf = function
+  let rec onf = function
     | Formula.True -> F.true_
     | False -> F.not F.true_
     | Conj (l, r) -> F.conj (onf l) (onf r)
     | Disj (l, r) -> F.disj (onf l) (onf r)
-    | EQ (l, r) -> F.eq (ont l) (ont r)
-    | LT (l, r) -> F.lt (ont l) (ont r)
-    | LE (l, r) -> F.le (ont l) (ont r)
-    | Term t -> ont t in
+    | EQ (l, r) -> F.eq (onf l) (onf r)
+    | LT (l, r) -> F.lt (onf l) (onf r)
+    | LE (l, r) -> F.le (onf l) (onf r)
+    | Symb s -> T.var s
+    | Int n -> T.const_int n
+    | Add (l, r) -> T.add (onf l) (onf r) in
   (onf f, ctx)
 
 module Store = struct
   module StringMap = Stdlib.Map.Make (String)
 
-  type t = Formula.t StringMap.t
-  (* TODO: formula or term? *) [@@deriving compare]
+  type t = Formula.t StringMap.t [@@deriving compare]
 
   let add = StringMap.add
   let empty = StringMap.empty
+  let find_exn = StringMap.find
+  let replace = StringMap.add
 end
 
 module POB = struct
   (* FIXME: GADT indexes fuck up generic programming
      TODO: maybe annotate parameters-as-indexes and generate more smart comparison functions ? *)
   type 'a t = {pob_loc: Loc.t; phi: Formula.t; pob_lvl: 'a level_t}
-  [@@deriving compare]
+  [@@deriving compare, sexp_of]
 
   let my_compare : 'a 'b. 'a t -> 'b t -> int =
    fun {pob_loc; phi; pob_lvl} {pob_loc= pob_loc2; phi= xi; pob_lvl= pob_lvl2} ->
@@ -166,14 +161,14 @@ module POB = struct
   type 'a pob = 'a t
 
   module X = struct
-    type gt = POB : 'a t -> gt
+    type gt = POB : 'a t -> gt [@@deriving sexp_of]
     type t = gt
 
     include Comparator.Make (struct
       type t = gt
 
       let compare a b = match (a, b) with POB l, POB r -> my_compare l r
-      let sexp_of_t = function _ -> assert false
+      let sexp_of_t = sexp_of_gt
     end)
   end
 
@@ -241,6 +236,7 @@ module State = struct
   let loc {loc} = loc
   let pc {pc} = pc
   let loc0 {loc0} = loc0
+  let store {store} = store
   let pobs {pobs} = pobs
   let level : t -> int = function {lvl= LvlInt n} -> n
   let last = ref 0
@@ -493,14 +489,60 @@ module Hardcoded = struct
         failwiths "canReach not implemented: %d -> %d avoiding %a " src dst
           Loc.Set.pp loc_set
 
+  let execute_instruction st loc : state_set =
+    let module M = struct
+      type instr = Assn of string * expr
+
+      and expr = EConst of int | ESym of string | EAdd of expr * expr
+    end in
+    let open M in
+    (* fat dot *)
+    let rec app_eff (eff : Store.t) = function
+      | M.EConst n -> Formula.int n
+      | M.ESym s -> (
+        match Store.find_exn s eff with
+        | exception Not_found -> Formula.symb s
+        | t -> t )
+      | M.EAdd (l, r) -> Formula.add (app_eff eff l) (app_eff eff r) in
+    let rec fat_dot eff (M.Assn (dest, e)) : Store.t =
+      match e with
+      | M.EConst n -> Store.(eff |> add dest (Formula.int n))
+      | M.ESym _ | M.EAdd (_, _) -> Store.(eff |> replace dest (app_eff eff e))
+    in
+    let next_level = LvlInt (State.level st + 1) in
+    let eff0 = State.store st in
+    match loc with
+    | 2 ->
+        State.Set.singleton
+        @@ State.create ~loc0:0 ~loc:3
+             (fat_dot
+                (fat_dot eff0 M.(Assn ("x", EConst 1)))
+                M.(Assn ("y", EConst 1)) )
+             Formula.true_ next_level POB.Set.empty
+    | 3 ->
+        let ans5 =
+          State.create ~loc0:0 ~loc:5 eff0 Formula.true_ next_level
+            POB.Set.empty in
+        let ans7 =
+          State.create ~loc0:0 ~loc:7 eff0
+            Formula.(symb "x" <= int 0)
+            next_level POB.Set.empty in
+        State.Set.(empty |> add ans5 |> add ans7)
+    | 5 ->
+        State.Set.singleton
+        @@ State.create ~loc0:0 ~loc:3
+             (fat_dot
+                (fat_dot eff0 M.(Assn ("x", EAdd (ESym "x", ESym "y"))))
+                M.(Assn ("y", ESym "x")) )
+             Formula.true_ next_level POB.Set.empty
+    | 7 -> State.Set.empty
+    | _ -> failwith "unreachable"
+
   let pM : _ POB.t = POB.create 7 True LvlInf
 
   let s1 : state =
     State.create ~loc0:2 ~loc:3
-      Store.(
-        empty
-        |> add "x" (Formula.term @@ Term.int 1)
-        |> add "y" (Formula.term @@ Term.int 1))
+      Store.(empty |> add "x" (Formula.int 1) |> add "y" (Formula.int 1))
       Formula.True (LvlInt 0)
       POB.Set.(add_exn pM empty)
 
@@ -508,27 +550,21 @@ module Hardcoded = struct
     State.create ~loc0:3 ~loc:5
       Store.(
         empty
-        |> add "x" (Formula.term @@ Term.(add (symb "x") (symb "y")))
-        |> add "y" (Formula.term @@ Term.symb "y"))
+        |> add "x" Formula.(add (symb "x") (symb "y"))
+        |> add "y" (Formula.symb "y"))
       Formula.True (LvlInt 0)
       POB.Set.(add_exn pM empty)
 
   let s3 : state =
     State.create ~loc0:5 ~loc:3
-      Store.(
-        empty
-        |> add "x" (Formula.term @@ Term.(symb "x"))
-        |> add "y" (Formula.term @@ Term.symb "x"))
+      Store.(empty |> add "x" Formula.(symb "x") |> add "y" (Formula.symb "x"))
       Formula.True (LvlInt 1)
       POB.Set.(add_exn pM empty)
 
   let s4 : state =
     State.create ~loc0:3 ~loc:7
-      Store.(
-        empty
-        |> add "x" (Formula.term @@ Term.(symb "x"))
-        |> add "y" (Formula.term @@ Term.symb "x"))
-      Formula.(le (Term.symb "x") (Term.int 0))
+      Store.(empty |> add "x" Formula.(symb "x") |> add "y" (Formula.symb "x"))
+      Formula.(le (symb "x") (int 0))
       (LvlInt 0)
       POB.Set.(add_exn pM empty)
 
@@ -623,6 +659,7 @@ let make_algo query_locs program =
         State.add_pob st p
 
     let rec blockWitness s' p' =
+      log "blockWitness: state = %a, p=%a\n%!" State.pp s' POB.pp p' ;
       With_return.with_return (fun r ->
           State.remove_pob s' p' ;
           G.remove_witness g ~key:p' s' ;
@@ -664,7 +701,7 @@ let make_algo query_locs program =
       !apxm
 
     let nextLevel g = g.curLvl <- (match g.curLvl with LvlInt n -> LvlInt n)
-    let executeInstruction _ _ = assert false
+    let executeInstruction = Hardcoded.execute_instruction
     let mkPrime _ = assert false
     let checkInductive _ = assert false
     let generalize _ _ = assert false
@@ -680,15 +717,15 @@ let make_algo query_locs program =
             warned := true ;
             Format.eprintf "Hardcoded `encode` implementation\n%!" ) in
         let open Formula in
-        let x = Term.symb "x" in
+        let x = symb "x" in
         let x' = x in
-        let y = Term.symb "y" in
+        let y = symb "y" in
         let y' = y in
-        let _1 = Term.int 1 in
-        let _0 = Term.int 0 in
+        let _1 = int 1 in
+        let _0 = int 0 in
         match State.index st with
         | 1 -> x' = _1 && y' = _1
-        | 2 -> (x' = Term.(x + y)) && y' = y
+        | 2 -> x' = x + y && y' = y
         | 3 -> x' = x && y' = x
         | 4 -> x' <= _0 && x' = x && y' = y
         | _ -> failwith "Should not happen in demo example"
