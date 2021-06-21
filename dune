@@ -16,3 +16,8 @@
   (libraries vcore)
   (preprocess (pps GT.ppx ))
 )
+
+; (rule
+;  (alias run_backward)
+;  (action
+;   (run ./backward/demoBack.exe )))

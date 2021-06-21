@@ -1,6 +1,10 @@
 (executable
  (name demoBack)
  (modules FancyZ3 demoBack)
- (libraries z3 ppx_compare)
- (preprocess (pps ppx_compare))
+ (libraries z3 ppx_compare ppx_show.runtime )
+ ; TODO: why ppx_compare without `runtime` but ppx_show needs it?
+ (preprocess (pps ppx_compare ppx_show))
  )
+
+(cram
+  (deps ./demoBack.exe))

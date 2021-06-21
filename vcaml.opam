@@ -3,28 +3,28 @@ opam-version: "2.0"
 name: "vcaml"
 version: "0.1"
 synopsis: "Symbolic interpretation"
+license: "GPL-2.0-or-later"
 description: """
 Playground for experiments about verification and symbolic execution
 """
 
 maintainer: "Dmitrii.Kosarev@protonmail.ch"
 authors: "Dmitrii.Kosarev@protonmail.ch"
-license: "GPL"
 homepage: "https://github.com/Kakadu/vcaml"
 bug-reports: "https://github.com/Kakadu/vcaml/issues"
 dev-repo: "git+https://github.com/Kakadu/vcaml"
 
-depends: [ 
+depends: [
   "ocaml"      { >= "4.09" }
   "ocamlfind"  { build }
   "dune"       { build }
-  "ppx_import" { build }
+  # "ppx_import" { build }
   "base"
   "fmt"
   "GT"
   "terminal_size"
+  "alcotest" { with-test }
 ]
 build: ["dune" "build" "-p" name "-j" jobs]
 
 #install: [make "install"]
-
